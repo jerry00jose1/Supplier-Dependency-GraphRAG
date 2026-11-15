@@ -4,7 +4,10 @@
 
 User: a manufacturing procurement analyst investigating a supplier disruption.
 Decision: which purchases to investigate first and which potential alternatives
-to contact. The output is an evidence-backed investigation.
+to contact, followed by an explicitly requested replacement purchase. The output
+is an evidence-backed investigation and, after buyer confirmation, an ERPNext
+draft routed through ERPNext's approval workflow. Slack provides the conversation
+and status links. See [architecture and mappings](architecture.md).
 
 ## First demonstration
 
@@ -16,6 +19,14 @@ Return potentially exposed order lines, relevant departments, historically used
 alternatives, dependency paths, source citations, and unresolved facts. Associate
 exposure with the notice period and snapshot date rather than silently treating
 historical purchases as current open orders.
+
+All Mizan source orders are marked closed. Use explicitly synthetic open orders
+for the disruption scenario described in the architecture. Preserve the documented
+differences between the CSV data and seeded ERPNext records.
+
+After the buyer confirms quotation and delivery details, demonstrate creating one
+draft, approval or rejection in ERPNext, and a status reply in Slack. Neo4j stores
+the investigation projection; ERPNext owns purchasing and approval state.
 
 ## Modeling requirements
 
@@ -40,11 +51,19 @@ historical purchases as current open orders.
    correctness, evidence support, omissions, latency, and cost are recorded.
 8. A five-minute demo explains the decision, schema, retrieval path, result,
    and one failure case.
+9. A read-only ERPNext snapshot uses verified field mappings, source identifiers,
+   and a visible snapshot time; it does not silently merge transformed ERP records
+   with the raw CSV source.
+10. Investigation alone never creates a purchase. Confirmed purchase requests
+    create at most one draft across retries, including uncertain API outcomes.
+11. Authorized approval and rejection occur in ERPNext and are reported correctly
+    in Slack. The draft-creation integration cannot bypass required approval.
 
 ## Later extensions
 
-Text-to-Cypher with read-only access; read-only ERPNext snapshots; temporal claim
-updates; approved-substitution records; and an independently evaluated ML model.
+Text-to-Cypher with read-only access; incremental ERP synchronization; temporal
+claim updates; approvals directly from Slack; approved-substitution records; and
+an independently evaluated ML model.
 A late-delivery model needs a time split and features computed only from facts
 available at prediction time.
 
@@ -54,3 +73,9 @@ The `procurement_agent` package retains its import name to preserve working code
 and tests. Its LangGraph workflow describes execution steps; the planned Neo4j
 graph describes business entities and relationships. The new distribution name
 is `supplier-dependency-graphrag`.
+
+Keep reusable purchase validation, draft creation, Slack transport, and their
+relevant tests. The inherited Python approval vault is not the target approval
+authority; its conversation storage and duplicate-prevention roles must be
+preserved or replaced before removing it. Cleanup follows the architecture's
+component responsibilities rather than deleting the old package wholesale.
