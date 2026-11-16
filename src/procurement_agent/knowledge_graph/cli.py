@@ -20,6 +20,7 @@ def investigate(driver: Driver, database: str, snapshot: str) -> dict[str, Any]:
         "snapshot": snapshot, "notice_id": "synthetic:Claim:shutdown-x",
         "item_id": "mizan:Item:M01-01", "excluded_supplier": "mizan:Supplier:SUP0065",
         "facility_id": "synthetic:Facility:FAC-X", "limit": 100,
+        "supplier_filter": "", "item_filter": "",
     }
     results = {}
     with driver.session(database=database) as session:

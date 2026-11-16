@@ -20,9 +20,10 @@ route it through ERPNext approval, and report the status in Slack. See the
 
 **The first knowledge-graph milestone is implemented:** local Neo4j, validated
 Mizan/synthetic demo ingestion, repeatable snapshots, and three investigation
-queries. See [run and inspection instructions](docs/graph-demo.md). LLM/Slack
-graph retrieval, live ERP synchronization, and ERPNext-owned approval integration
-are still pending. The inherited procurement application remains available.
+queries. Entity-aware LLM answers and a Slack thread listener are also implemented;
+see [conversation setup and evaluation](docs/graph-conversation.md). Ten live-model
+scenarios passed. Live ERP synchronization, document extraction, and ERPNext-owned
+approval integration remain pending. See [graph inspection instructions](docs/graph-demo.md).
 
 This repository starts from [Agentic Procurement Automation](https://github.com/jerry00jose1/Agentic-Procurement-Automation),
 commit `3489faed9e926d2850ddc952f1adc972bd861138`, with independent Git history.

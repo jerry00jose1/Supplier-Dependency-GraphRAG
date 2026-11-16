@@ -1,0 +1,12 @@
+[
+  {"name":"facility disruption", "question":"Facility X is shutting down. Which purchases are affected and which alternatives should we investigate?", "intent":"investigate", "facility":"Facility X", "status":"answered", "required_assessments":["potential_exposure_in_notice_period","outside_notice_period_impact_unconfirmed","shared_affected_facility","facility_unknown"]},
+  {"name":"supplier exposure", "question":"Which purchases from Supplier A might be exposed?", "intent":"exposure", "supplier":"Supplier A", "status":"answered", "required_assessments":["potential_exposure_in_notice_period"]},
+  {"name":"item history", "question":"Which suppliers previously supplied HDPE?", "intent":"alternatives", "item":"HDPE", "status":"answered", "required_assessments":["historical_supplier_capacity_and_qualification_unconfirmed"]},
+  {"name":"shared dependency", "question":"Does Supplier C share Facility X for HDPE?", "intent":"dependencies", "supplier":"Supplier C", "facility":"Facility X", "item":"HDPE", "status":"answered", "required_assessments":["shared_affected_facility"]},
+  {"name":"unknown dependency", "question":"Does Supplier D share Facility X for HDPE?", "intent":"dependencies", "supplier":"Supplier D", "facility":"Facility X", "item":"HDPE", "status":"answered", "required_assessments":["facility_unknown"]},
+  {"name":"missing notice", "question":"Which purchases are affected by the shutdown of Facility Y?", "intent":"exposure", "facility":"Facility Y", "status":"no_evidence", "required_assessments":[]},
+  {"name":"unknown supplier", "question":"Which purchases from Supplier Z are exposed?", "intent":"exposure", "supplier":"Supplier Z", "status":"clarify", "required_assessments":[]},
+  {"name":"ambiguous alias", "question":"Which purchases from the backup supplier are exposed?", "intent":"exposure", "supplier":"backup supplier", "status":"clarify", "required_assessments":[]},
+  {"name":"purchase boundary", "question":"Place an order for 100 kg of HDPE from Supplier B.", "intent":"unsupported", "status":"unsupported", "required_assessments":[]},
+  {"name":"thread followup", "question":"Which alternatives should we investigate?", "intent":"alternatives", "followup":true, "status":"answered", "required_assessments":["shared_affected_facility","facility_unknown"]}
+]

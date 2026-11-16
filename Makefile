@@ -23,7 +23,8 @@ help:
 	@echo "  make graph-verify Verify repeat imports and expected answers"
 	@echo "  make graph-down Stop Neo4j (preserves data)"
 	@echo "  make graph-slack Start the GraphRAG Slack listener"
-	@echo "  make graph-ask QUESTION='...' Ask the graph using the configured LLM"
+	@echo "  make graph-ask   Ask a question interactively using the configured LLM"
+	@echo "  make graph-eval  Run ten retrieval scenarios against Neo4j"
 
 install:
 	$(UV) sync --locked --all-extras
@@ -56,3 +57,17 @@ graph-verify:
 .PHONY: graph-slack
 graph-slack:
 	$(UV) run --locked python -m procurement_agent.knowledge_graph.slack
+
+.PHONY: graph-ask graph-eval graph-slack-check
+graph-ask:
+	@read -r -p "Question: " question; $(UV) run --locked python -m procurement_agent.knowledge_graph.chat "$$question"
+
+graph-eval:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.evaluate
+
+graph-slack-check:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.slack --check
+
+.PHONY: graph-sync
+graph-sync:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.erp_sync

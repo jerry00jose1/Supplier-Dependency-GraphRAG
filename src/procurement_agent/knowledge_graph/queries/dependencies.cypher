@@ -2,6 +2,7 @@ MATCH (:GraphSnapshot {id:$snapshot, ready:true})
 MATCH (item:Item {snapshot:$snapshot, id:$item_id})<-[:ORDERS]-(line:OrderLine)
       <-[:CONTAINS]-(order:PurchaseOrder)-[:FROM_SUPPLIER]->(supplier:Supplier)
 WHERE supplier.id <> $excluded_supplier
+  AND ($supplier_filter = '' OR supplier.id = $supplier_filter)
   AND order.status = 'Closed' AND line.received_quantity > 0
   AND date(order.order_date) <= date(line.snapshot_date)
 WITH DISTINCT supplier, item

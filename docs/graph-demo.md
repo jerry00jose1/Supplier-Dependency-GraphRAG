@@ -1,8 +1,9 @@
 # Run and inspect the first knowledge graph
 
 This milestone implements validated ingestion and three saved Cypher queries.
-LLM answers, Slack graph retrieval, live ERP synchronization, and the new approval
-handoff remain subsequent work.
+LLM answers and Slack graph retrieval are now available through the
+[conversation service](graph-conversation.md). Live ERP synchronization and the
+new approval handoff remain subsequent work.
 
 ## Start and verify
 
@@ -85,7 +86,7 @@ RETURN p,q;
 To run the three saved investigation files in Browser, set their other parameters:
 
 ```cypher
-:params {notice_id: 'synthetic:Claim:shutdown-x', item_id: 'mizan:Item:M01-01', excluded_supplier: 'mizan:Supplier:SUP0065', facility_id: 'synthetic:Facility:FAC-X', limit: 100}
+:params {notice_id: 'synthetic:Claim:shutdown-x', item_id: 'mizan:Item:M01-01', excluded_supplier: 'mizan:Supplier:SUP0065', facility_id: 'synthetic:Facility:FAC-X', supplier_filter: '', item_filter: '', limit: 100}
 ```
 
 ## Snapshot and test behavior

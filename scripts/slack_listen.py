@@ -28,6 +28,7 @@ from procurement_agent.slack.messages import order_card
 
 def main() -> None:
     settings = get_settings()
+    settings = settings.model_copy(update={"database_url": settings.graph_app_database_url})
     logging.basicConfig(level=settings.app_log_level)
     bot_token, app_token, signing_secret = _tokens(settings)
     vault = ApprovalVault(init_database(settings.database_url), settings.approver_user_ids)

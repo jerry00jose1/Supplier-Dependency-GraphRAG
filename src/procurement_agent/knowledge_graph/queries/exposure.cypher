@@ -11,6 +11,8 @@ MATCH (order:PurchaseOrder {snapshot:$snapshot, status:'Open'})-[:FROM_SUPPLIER]
 MATCH (order)-[:CONTAINS]->(line:OrderLine)-[:ORDERS]->(item:Item)
 MATCH (line)-[:CHARGED_TO]->(centre:CostCentre)
 WHERE line.quantity > line.received_quantity
+  AND ($supplier_filter = '' OR supplier.id = $supplier_filter)
+  AND ($item_filter = '' OR item.id = $item_filter)
   AND (claim.valid_from IS NULL OR date(claim.valid_from) <= date(notice.end))
   AND (properties(claim).valid_to IS NULL
        OR date(properties(claim).valid_to) >= date(notice.start))

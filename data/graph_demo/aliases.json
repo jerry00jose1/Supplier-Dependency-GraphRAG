@@ -1,0 +1,10 @@
+{
+  "mizan:Supplier:SUP0065": ["Supplier A"],
+  "mizan:Supplier:SUP0066": ["Supplier B", "backup supplier"],
+  "mizan:Supplier:SUP0067": ["Supplier C", "backup supplier"],
+  "synthetic:Supplier:DEMO-SUP-D": ["Supplier D"],
+  "mizan:Item:M01-01": ["HDPE", "HDPE pellets"],
+  "synthetic:Facility:FAC-X": ["Facility X"],
+  "synthetic:Facility:FAC-Y": ["Facility Y"],
+  "synthetic:Claim:shutdown-x": ["shutdown-x"]
+}

@@ -1,9 +1,9 @@
 # Supplier Dependency GraphRAG architecture
 
-Status: 2026-11-15. The first graph milestone (demo ingestion and three queries)
-is implemented; see [run instructions](graph-demo.md). Document extraction,
-LLM/Slack graph retrieval, live ERP synchronization, and the ERPNext-owned approval
-handoff remain planned.
+Status: 2026-11-16. Demo ingestion, three queries, and entity-aware LLM/Slack graph
+retrieval are implemented; see [graph instructions](graph-demo.md) and
+[conversation guide](graph-conversation.md). Document extraction, live ERP
+synchronization, and the ERPNext-owned approval handoff remain planned.
 
 ## Customer workflow and ownership
 

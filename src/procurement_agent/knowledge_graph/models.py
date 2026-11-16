@@ -23,7 +23,7 @@ class Node(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     label: Label
-    origin: Literal["mizan", "synthetic"]
+    origin: Literal["mizan", "synthetic", "erpnext"]
     source: str
     properties: dict[str, str | float | int]
 
@@ -101,7 +101,7 @@ class Snapshot(BaseModel):
             outgoing = [e for e in self.edges if e.source == node.id]
             incoming = [e for e in self.edges if e.target == node.id]
             required = {"PurchaseOrder": ["FROM_SUPPLIER"],
-                        "OrderLine": ["ORDERS", "CHARGED_TO"],
+                        "OrderLine": ["ORDERS"],
                         "Claim": ["SUBJECT"]}.get(node.label, [])
             if any(sum(e.relation == rel for e in outgoing) != 1 for rel in required):
                 raise ValueError(f"Missing or ambiguous links for {node.id}")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     erpnext_timeout_seconds: float = 30.0
 
     database_url: str = "postgresql+psycopg://procurement:procurement@localhost:5433/procurement"
+    # Dedicated state for this project's Slack proposals and conversations.
+    graph_app_database_url: str = (
+        "sqlite:///" + str(Path(__file__).resolve().parents[2] / "graph_app.sqlite3")
+    )
 
     llm_provider: Literal["openai", "deepseek", "anthropic", "gemini"] = "openai"
     llm_model: str = "gpt-4.1-mini"
