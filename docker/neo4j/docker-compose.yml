@@ -1,0 +1,22 @@
+name: supplier-dependency-graph
+services:
+  neo4j:
+    image: neo4j:2026.10.2
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    environment:
+      # Local demo credentials only. Bindings above restrict access to this machine.
+      NEO4J_AUTH: neo4j/supplier-demo-local
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    volumes:
+      - graph_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p supplier-demo-local 'RETURN 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+volumes:
+  graph_data:
