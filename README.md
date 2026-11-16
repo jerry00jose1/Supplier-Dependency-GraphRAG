@@ -18,9 +18,11 @@ route it through ERPNext approval, and report the status in Slack. See the
 
 ## Current status
 
-**Project foundation created; the knowledge graph and GraphRAG workflow are not
-implemented yet.** The inherited procurement application and tests are reusable
-starting components, not a completed supplier dependency product.
+**The first knowledge-graph milestone is implemented:** local Neo4j, validated
+Mizan/synthetic demo ingestion, repeatable snapshots, and three investigation
+queries. See [run and inspection instructions](docs/graph-demo.md). LLM/Slack
+graph retrieval, live ERP synchronization, and ERPNext-owned approval integration
+are still pending. The inherited procurement application remains available.
 
 This repository starts from [Agentic Procurement Automation](https://github.com/jerry00jose1/Agentic-Procurement-Automation),
 commit `3489faed9e926d2850ddc952f1adc972bd861138`, with independent Git history.
@@ -52,8 +54,8 @@ Existing ERPNext containers and embedding model caches can be reused. The inheri
 application currently uses an approval store for proposals and conversation state.
 Its responsibilities will be adapted as formal approval moves to ERPNext; a
 separate approval database is not required just to load and query the graph.
-Neo4j, its driver, and GraphRAG dependencies will be added during implementation;
-they are not installed by this foundation.
+The Neo4j driver is included in the lockfile. Run `make graph-up` to start the
+separate local graph database and `make graph-verify` to load and check the demo.
 
 `Makefile.procurement` and the existing Docker files are inherited reference
 infrastructure. Their service targets operate on the original procurement stack.

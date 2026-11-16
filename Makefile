@@ -5,12 +5,25 @@ endif
 
 .PHONY: help install test lint typecheck
 
+ifneq ($(wildcard /Applications/Docker.app/Contents/Resources/bin/docker),)
+export PATH := /Applications/Docker.app/Contents/Resources/bin:$(PATH)
+endif
+DOCKER ?= docker
+GRAPH_COMPOSE := docker/neo4j/docker-compose.yml
+
 help:
 	@echo "Supplier Dependency GraphRAG — project foundation"
 	@echo "  make install    Create a separate Python environment from the lockfile"
 	@echo "  make test       Run inherited offline tests"
 	@echo "  make typecheck  Check inherited Python types"
 	@echo "  make lint       Run the same scoped lint check as CI"
+	@echo "  make graph-up   Start local Neo4j"
+	@echo "  make graph-load Load the demo snapshot"
+	@echo "  make graph-query Run the three investigations"
+	@echo "  make graph-verify Verify repeat imports and expected answers"
+	@echo "  make graph-down Stop Neo4j (preserves data)"
+	@echo "  make graph-slack Start the GraphRAG Slack listener"
+	@echo "  make graph-ask QUESTION='...' Ask the graph using the configured LLM"
 
 install:
 	$(UV) sync --locked --all-extras
@@ -23,3 +36,23 @@ typecheck:
 
 lint:
 	$(UV) run --locked ruff check src tests scripts/slack_listen.py scripts/eval_demo.py
+
+.PHONY: graph-up graph-down graph-load graph-query graph-verify
+graph-up:
+	$(DOCKER) compose -f $(GRAPH_COMPOSE) up -d --wait --wait-timeout 180
+
+graph-down:
+	$(DOCKER) compose -f $(GRAPH_COMPOSE) down
+
+graph-load:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.cli load
+
+graph-query:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.cli query
+
+graph-verify:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.cli verify
+
+.PHONY: graph-slack
+graph-slack:
+	$(UV) run --locked python -m procurement_agent.knowledge_graph.slack

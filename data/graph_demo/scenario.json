@@ -1,0 +1,19 @@
+{
+  "snapshot_date": "2026-11-15",
+  "item_code": "M01-01",
+  "supplier_codes": ["SUP0065", "SUP0066", "SUP0067"],
+  "synthetic_supplier": "DEMO-SUP-D",
+  "facility_claims": [
+    {"supplier": "SUP0065", "facility": "FAC-X", "document": "profile-a.md"},
+    {"supplier": "SUP0066", "facility": "FAC-Y", "document": "profile-b.md"},
+    {"supplier": "SUP0067", "facility": "FAC-X", "document": "profile-c.md"}
+  ],
+  "disruption": {
+    "id": "shutdown-x", "facility": "FAC-X", "start": "2026-11-16",
+    "end": "2026-11-30", "document": "shutdown.md"
+  },
+  "open_lines": [
+    {"id": "DEMO-PO-001-1", "need_by": "2026-11-20", "quantity": 100},
+    {"id": "DEMO-PO-001-2", "need_by": "2026-12-10", "quantity": 50}
+  ]
+}

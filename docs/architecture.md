@@ -1,7 +1,9 @@
 # Supplier Dependency GraphRAG architecture
 
-Status: agreed implementation direction, 2026-11-15. The graph, synchronization,
-and ERPNext-owned approval handoff are planned, not implemented.
+Status: 2026-11-15. The first graph milestone (demo ingestion and three queries)
+is implemented; see [run instructions](graph-demo.md). Document extraction,
+LLM/Slack graph retrieval, live ERP synchronization, and the ERPNext-owned approval
+handoff remain planned.
 
 ## Customer workflow and ownership
 
@@ -112,8 +114,10 @@ must be configured so the draft-creation path cannot bypass required approval.
 
 ## Concrete demo fixture
 
-All identifiers and events below are planned synthetic fixtures, not findings in
-Mizan or the live ERP. Use a fixed snapshot date of 2026-11-15.
+The scenario uses a fixed snapshot date of 2026-11-15. The implemented fixture
+maps A/B/C to Mizan suppliers SUP0065/SUP0066/SUP0067, Item I to M01-01 (HDPE,
+kg), and D to an entirely synthetic supplier. Facility claims, disruptions, and
+open orders are synthetic; see [fixture provenance](../data/graph_demo/README.md).
 
 - Supplier A and Supplier C have supported claims linking them to Facility X.
   A notice states that X is shut from November 16 through November 30.
