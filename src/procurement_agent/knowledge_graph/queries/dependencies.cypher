@@ -3,13 +3,14 @@ MATCH (item:Item {snapshot:$snapshot, id:$item_id})<-[:ORDERS]-(line:OrderLine)
       <-[:CONTAINS]-(order:PurchaseOrder)-[:FROM_SUPPLIER]->(supplier:Supplier)
 WHERE supplier.id <> $excluded_supplier
   AND ($supplier_filter = '' OR supplier.id = $supplier_filter)
-  AND order.status = 'Closed' AND line.received_quantity > 0
-  AND date(order.order_date) <= date(line.snapshot_date)
+  AND order.status IN ['Closed', 'Completed', 'To Bill'] AND line.received_quantity > 0
+  AND (line.snapshot_date IS NULL OR date(order.order_date) <= date(line.snapshot_date))
 WITH DISTINCT supplier, item
 OPTIONAL MATCH (claim:Claim {snapshot:$snapshot, predicate:'USES_FACILITY', status:'accepted'})
                -[:SUBJECT]->(supplier)
-WHERE (claim.valid_from IS NULL OR date(claim.valid_from) <= date(supplier.snapshot_date))
-  AND (properties(claim).valid_to IS NULL
+WHERE (claim.valid_from IS NULL OR supplier.snapshot_date IS NULL
+       OR date(claim.valid_from) <= date(supplier.snapshot_date))
+  AND (properties(claim).valid_to IS NULL OR supplier.snapshot_date IS NULL
        OR date(properties(claim).valid_to) >= date(supplier.snapshot_date))
   AND (NOT EXISTS { MATCH (claim)-[:FOR_ITEM]->() }
        OR EXISTS { MATCH (claim)-[:FOR_ITEM]->(item) })

@@ -19,14 +19,30 @@ from procurement_agent.agent.model import openai_chat_model
 from procurement_agent.config import Settings, get_settings
 from procurement_agent.domain.orders import OrderVault
 from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Reply
-from procurement_agent.knowledge_graph.demo import ROOT, build_demo
-from procurement_agent.knowledge_graph.operations import GraphVault
+from procurement_agent.knowledge_graph.demo import ROOT
+from procurement_agent.knowledge_graph.operations import ACTIVE, GraphVault
 from procurement_agent.knowledge_graph.procurement import load_graph_evidence
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
 from procurement_agent.knowledge_graph.store import GraphSettings
 from procurement_agent.slack.item_reply import ItemReply, reply_to_text
 from procurement_agent.slack.router import order_answer, route_question
 from procurement_agent.slack.storage import ThreadStore, slack_text
+
+
+class _KeyedLocks:
+    """Serialize messages within the same Slack thread without blocking other threads."""
+
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._locks: dict[str, threading.Lock] = {}
+
+    def for_key(self, key: str) -> threading.Lock:
+        with self._guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[key] = lock
+            return lock
 
 
 def main() -> None:
@@ -38,52 +54,66 @@ def main() -> None:
     driver = graph_settings.driver()
     vault = GraphVault(driver, graph_settings.database)
     receipts = ThreadStore(ROOT / ".cache/unified_deliveries.sqlite3")
-    lock = threading.Lock()
+    locks = _KeyedLocks()
     app = App(token=bot_token, signing_secret=signing_secret)
 
     @app.command("/propose")
     def propose(ack: Any, command: dict[str, Any], client: Any) -> None:
         ack()
-        with lock:
-            handle_command(command, client)
-
-    def handle_command(command: dict[str, Any], client: Any) -> None:
-        text = str(command.get("text") or "")
         channel = str(command["channel_id"])
         conversation_id = conversation_key(channel, str(command["user_id"]))
-        vault.event_id = str(command.get("trigger_id") or command.get("command_ts") or "")
+        with locks.for_key(conversation_id):
+            handle_command(command, client, channel, conversation_id)
+
+    def handle_command(
+        command: dict[str, Any], client: Any, channel: str, conversation_id: str
+    ) -> None:
+        text = str(command.get("text") or "")
+        event_id = str(command.get("trigger_id") or command.get("command_ts") or "")
         _deliver(
             client,
             vault,
             channel,
-            _unified_answer(settings, vault, model, driver, text, conversation_id),
+            _unified_answer(
+                settings, vault, model, driver, text, conversation_id, event_id=event_id
+            ),
             conversation_id=conversation_id,
         )
 
     @app.event("message")
     def on_message(event: dict[str, Any], client: Any) -> None:
-        with lock:
-            handle_message(event, client)
-
-    def handle_message(event: dict[str, Any], client: Any) -> None:
         if event.get("channel") != settings.slack_channel_id:
             return
         if event.get("bot_id") or event.get("subtype") or not event.get("user"):
             return
+        channel = settings.slack_channel_id
+        root_ts = str(event.get("thread_ts") or event["ts"])
+        conversation_id = conversation_key(channel, str(event.get("user") or ""), root_ts)
+        with locks.for_key(conversation_id):
+            handle_message(event, client, channel, root_ts, conversation_id)
+
+    def handle_message(
+        event: dict[str, Any],
+        client: Any,
+        channel: str,
+        root_ts: str,
+        conversation_id: str,
+    ) -> None:
         event_id = f"{event['channel']}:{event['ts']}"
         if receipts.seen(event_id):
             return
-        channel = settings.slack_channel_id
-        root_ts = str(event.get("thread_ts") or event["ts"])
-        # Each Slack thread is a conversation. Root message and its replies share this key.
-        conversation_id = conversation_key(channel, str(event.get("user") or ""), root_ts)
         if vault.conversation(conversation_id) is None:
             command_context = vault.conversation(conversation_key(channel, "", root_ts))
             if command_context:
                 vault.save_conversation(conversation_id, command_context)
-        vault.event_id = event_id
         reply = _unified_answer(
-            settings, vault, model, driver, str(event.get("text") or ""), conversation_id,
+            settings,
+            vault,
+            model,
+            driver,
+            str(event.get("text") or ""),
+            conversation_id,
+            event_id=event_id,
         )
         if not receipts.reserve(event_id, conversation_id, Reply(
             text=reply.text, context=Context(), status="handled",
@@ -108,22 +138,33 @@ def main() -> None:
 
 
 def _unified_answer(
-    settings: Settings, vault: OrderVault, model: BaseChatModel,
-    driver: Any, text: str, conversation_id: str,
+    settings: Settings,
+    vault: OrderVault,
+    model: BaseChatModel,
+    driver: Any,
+    text: str,
+    conversation_id: str,
+    *,
+    event_id: str | None = None,
 ) -> ItemReply:
     try:
         route, state = route_question(model, vault, conversation_id, text)
         if route.workflow == "procurement":
             reply = _answer(
-                settings, vault, model, text, conversation_id=conversation_id, driver=driver
+                settings,
+                vault,
+                model,
+                text,
+                conversation_id=conversation_id,
+                driver=driver,
+                event_id=event_id,
             )
         else:
             if route.workflow == "orders":
                 answer = order_answer(driver, GraphSettings().database,
-                                      "procurement:active", state)
+                                      ACTIVE, state)
             else:
-                # Synthetic facility evidence remains scoped to the demo, never ERP identities.
-                reader = GraphReader(driver, GraphSettings().database, build_demo().fingerprint,
+                reader = GraphReader(driver, GraphSettings().database, ACTIVE,
                                      demo_aliases(ROOT))
                 previous = Context.model_validate_json(
                     vault.conversation("graph:" + conversation_id) or "{}"
@@ -155,6 +196,7 @@ def _answer(
     *,
     conversation_id: str = "default",
     driver: Any | None = None,
+    event_id: str | None = None,
 ) -> ItemReply:
     if not text.strip():
         return ItemReply("Name an item, for example: I need S-66100", None, None, None, None)
@@ -172,6 +214,7 @@ def _answer(
         conversation_id=conversation_id,
         embedder=source.embedder,
         source=source,
+        event_id=event_id,
     )
 
     return ItemReply(f"Graph evidence refreshed {source.refreshed}.\n\n" + reply.text,

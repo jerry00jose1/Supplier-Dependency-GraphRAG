@@ -39,6 +39,7 @@ def reply_to_text(
     invoice_items: list[dict[str, Any]] | None = None,
     embedder: Embedder | None = None,
     source: ProcurementEvidence | None = None,
+    event_id: str | None = None,
 ) -> ItemReply:
     if not text.strip():
         return _say("Name an item, for example: I need S-66100")
@@ -57,6 +58,7 @@ def reply_to_text(
             invoice_items=invoice_items,
             embedder=embedder,
             source=source,
+            event_id=event_id,
         )
     except Exception:
         logging.getLogger(__name__).exception("Buyer request failed")

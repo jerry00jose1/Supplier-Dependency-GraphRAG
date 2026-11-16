@@ -53,7 +53,18 @@ def test_purchase_routes_to_existing_workflow_without_using_graph() -> None:
     expected = ItemReply("Prepared", [{"type": "section"}], "proposal", None, None)
     with patch.dict(answer.__globals__, {"_answer": Mock(return_value=expected)}) as namespace:
         result = answer(Settings(_env_file=None), vault, model, driver,
-                        "Prepare an order for 2 units of ITEM-A", "thread")
+                        "Prepare an order for 2 units of ITEM-A", "thread", event_id="C1:1.0")
         assert result is expected
         namespace["_answer"].assert_called_once()
     driver.session.assert_not_called()
+
+
+def test_keyed_locks_scope_concurrency_per_conversation() -> None:
+    module = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts/slack_listen.py"))
+    locks = module["_KeyedLocks"]()
+    lock_a1 = locks.for_key("slack:thread-a")
+    lock_a2 = locks.for_key("slack:thread-a")
+    lock_b = locks.for_key("slack:thread-b")
+    assert lock_a1 is lock_a2
+    assert lock_a1 is not lock_b
+

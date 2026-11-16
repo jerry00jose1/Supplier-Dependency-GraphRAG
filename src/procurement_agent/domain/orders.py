@@ -57,13 +57,11 @@ class StoredProposal:
 
 
 class OrderVault(Protocol):
-    """Persistence interface for conversation state and direct order creation."""
+    """Stateless persistence interface for conversation context and direct order creation."""
 
     def conversation(self, conversation_id: str) -> str | None: ...
 
     def save_conversation(self, conversation_id: str, state_json: str) -> None: ...
-
-    def get(self, proposal_id: str) -> StoredProposal | None: ...
 
     def stage(self, idempotency_key: str, order: DraftPurchaseOrder) -> StoredProposal: ...
 
@@ -87,10 +85,9 @@ class InMemoryVault:
             state_json = json.dumps(state)
         self.conversations[conversation_id] = state_json
 
-    def get(self, proposal_id: str) -> StoredProposal | None:
-        return None
-
     def stage(self, idempotency_key: str, order: DraftPurchaseOrder) -> StoredProposal:
+        if not idempotency_key.strip():
+            raise ValueError("A stable event or request identifier is required")
         existing = self.by_key.get(idempotency_key)
         if existing is not None:
             return existing

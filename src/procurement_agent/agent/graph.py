@@ -98,6 +98,7 @@ def build_buyer_graph(
     invoice_items: list[dict[str, Any]] | None = None,
     embedder: Embedder | None = None,
     source: ProcurementEvidence | None = None,
+    event_id: str | None = None,
 ) -> Any:
     """Build one invocation's graph. Durable buyer state remains in OrderVault."""
     data_source = source or InMemoryEvidence(
@@ -133,6 +134,7 @@ def build_buyer_graph(
             embedder=active_embedder,
             intent=intent,
             source=data_source,
+            event_id=event_id,
         )
 
     @tool
@@ -415,6 +417,7 @@ def run_conversation(
     invoice_items: list[dict[str, Any]] | None = None,
     embedder: Embedder | None = None,
     source: ProcurementEvidence | None = None,
+    event_id: str | None = None,
 ) -> tuple[str, FiledPurchase | None]:
     graph = build_buyer_graph(
         model,
@@ -429,6 +432,7 @@ def run_conversation(
         invoice_items=invoice_items,
         embedder=embedder,
         source=source,
+        event_id=event_id,
     )
     result = graph.invoke({"text": text}, config={"recursion_limit": 2 * MAX_ROUNDS + 5})
     return result["result"]  # type: ignore[no-any-return]

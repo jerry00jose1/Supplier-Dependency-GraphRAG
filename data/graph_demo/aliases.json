@@ -2,8 +2,12 @@
   "mizan:Supplier:SUP0065": ["Supplier A"],
   "mizan:Supplier:SUP0066": ["Supplier B", "backup supplier"],
   "mizan:Supplier:SUP0067": ["Supplier C", "backup supplier"],
+  "erpnext:frontend:Supplier:Jebel Services LLC 065": ["Supplier A", "SUP0065"],
+  "erpnext:frontend:Supplier:Barakah Logistics LLC 066": ["Supplier B", "SUP0066", "backup supplier"],
+  "erpnext:frontend:Supplier:Marina Supplies LLC 067": ["Supplier C", "SUP0067", "backup supplier"],
   "synthetic:Supplier:DEMO-SUP-D": ["Supplier D"],
   "mizan:Item:M01-01": ["HDPE", "HDPE pellets"],
+  "erpnext:frontend:Item:M01-01": ["HDPE", "HDPE pellets", "M01-01"],
   "synthetic:Facility:FAC-X": ["Facility X"],
   "synthetic:Facility:FAC-Y": ["Facility Y"],
   "synthetic:Claim:shutdown-x": ["shutdown-x"]

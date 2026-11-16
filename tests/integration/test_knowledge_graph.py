@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 
 import pytest
 
+from procurement_agent.domain.orders import DraftPurchaseOrder, PurchaseOrderLine
 from procurement_agent.knowledge_graph.cli import investigate, verify_results
 from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Plan
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
 from procurement_agent.knowledge_graph.evaluate import EvidenceEcho, cases
 from procurement_agent.knowledge_graph.models import Snapshot
+from procurement_agent.knowledge_graph.operations import ACTIVE, GraphVault
 from procurement_agent.knowledge_graph.procurement import load_graph_evidence
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
 from procurement_agent.knowledge_graph.store import GraphSettings, load_snapshot
@@ -81,4 +84,39 @@ def test_targeted_graph_evidence_queries_without_full_table_scan() -> None:
         )
         assert len(mismatches) == 2
         assert any("quantity" in m.reasons and "price" in m.reasons for m in mismatches)
+
+
+def test_unified_active_graph_exposes_newly_created_slack_orders_to_dependency_graphrag() -> None:
+    settings = GraphSettings()
+    with settings.driver() as driver:
+        vault = GraphVault(driver, settings.database)
+        order = DraftPurchaseOrder(
+            supplier="Jebel Services LLC 065",
+            company="Northwind Components",
+            warehouse="Stores - NC",
+            transaction_date=date(2026, 11, 16),
+            schedule_date=date(2026, 11, 22),
+            currency="EUR",
+            items=[PurchaseOrderLine(item_code="M01-01", qty=25, rate=1.35)],
+        )
+        with driver.session(database=settings.database) as session:
+            tx = session.begin_transaction()
+            try:
+                vault._create(tx, "GRAPH-PO-TESTUNIFIED", order)
+                query = (
+                    ROOT / "src/procurement_agent/knowledge_graph/queries/exposure.cypher"
+                ).read_text()
+                rows = tx.run(
+                    query,
+                    snapshot=ACTIVE,
+                    notice_id="synthetic:Claim:shutdown-x",
+                    supplier_filter="",
+                    item_filter="",
+                    limit=25,
+                ).data()
+                exposed_orders = {r["order_id"]: r["within_period"] for r in rows}
+                assert exposed_orders.get("graph:PurchaseOrder:GRAPH-PO-TESTUNIFIED") is True
+            finally:
+                tx.rollback()
+
 

@@ -161,6 +161,7 @@ def run_conversation(
     embedder: Embedder | None = None,
     intent: BuyerIntent | None = None,
     source: ProcurementEvidence | None = None,
+    event_id: str | None = None,
 ) -> tuple[str, FiledPurchase | None]:
     evidence = source or InMemoryEvidence(
         orders or [],
@@ -244,19 +245,15 @@ def run_conversation(
             "excluded_suppliers": state.excluded_suppliers,
         })
 
-    current = vault.get(state.proposal_id) if state.proposal_id else None
-    if intent.action == "update" and (
-        not state.purchasing or (current and current.status != "proposed")
-    ):
+    if intent.action == "update" and not state.purchasing:
         return (
             "There is no open purchase to change. Start a new order with an item and quantity.",
             None,
         )
 
     # An explicit purchase starts a fresh request, except when filling an incomplete request.
-    if intent.action == "purchase" and (not state.purchasing or current is not None):
+    if intent.action == "purchase" and not state.purchasing:
         state = Conversation(context_item=state.context_item, purchasing=True)
-        current = None
 
     state.purchasing = True
     if intent.action == "purchase" or intent.excluded_suppliers:
@@ -285,13 +282,6 @@ def run_conversation(
     if state.required_by is not None and state.required_by < today:
         state.required_by = None
         date_error = "The required date must be today or later."
-
-    if current and any(
-        value is not None
-        for value in (intent.item, intent.supplier, intent.qty, intent.required_by)
-    ):
-        state.proposal_id = None
-        current = None
 
     missing: list[str] = []
     if state.item is None:
@@ -343,11 +333,11 @@ def run_conversation(
     order = order_for(chosen, state.item, state.qty, today).model_copy(
         update={"schedule_date": state.required_by}
     )
-    if current is None:
-        state.revision += 1
-        current = vault.stage(f"request:{state.request_id}:{state.revision}", order)
-        state.proposal_id = current.id
-        vault.save_conversation(conversation_id, state.model_dump_json())
+    state.revision += 1
+    key = event_id or f"request:{state.request_id}:{state.revision}"
+    current = vault.stage(key, order)
+    state.proposal_id = current.id
+    vault.save_conversation(conversation_id, state.model_dump_json())
     detail = (
         f"Prepared {state.qty:g} units of {state.item} from {chosen.supplier}, "
         f"required by {state.required_by.isoformat()}. "
