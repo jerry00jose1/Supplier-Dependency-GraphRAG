@@ -65,6 +65,15 @@ def reply_to_text(
     stored = filed.stored
     if stored.status != "proposed":
         if stored.erp_document_name:
+            if stored.erp_document_name.startswith("GRAPH-PO-"):
+                return _say(f"Created order {stored.erp_document_name} in Neo4j.\n"
+                            f"{stored.payload.supplier}: "
+                            f"{stored.payload.items[0].qty:g} × "
+                            f"{stored.payload.items[0].item_code}, "
+                            f"unit price {stored.payload.items[0].rate:g} "
+                            f"{stored.payload.currency}, "
+                            f"due {stored.payload.schedule_date}.\n"
+                            "Recorded in this application; not sent to a supplier.")
             return _say(f"Already created {stored.erp_document_name}. No second purchase order.")
         return _say(f"This item already has a {stored.status} proposal.")
     text_out, blocks = order_card(decision, stored, notice=filed.notice, submit_limit=submit_limit)

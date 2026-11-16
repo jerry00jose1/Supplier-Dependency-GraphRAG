@@ -47,6 +47,9 @@ def retrieve(
     chunks: list[PolicyChunk] | None = None,
     limit: int = 3,
 ) -> list[PolicyChunk]:
+    graph_retrieve = getattr(embedder, "retrieve", None)
+    if chunks is None and callable(graph_retrieve):
+        return list(graph_retrieve(query, limit))
     sections = chunks if chunks is not None else load_policy()
     if not sections or limit <= 0:
         return []

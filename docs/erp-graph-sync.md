@@ -9,7 +9,7 @@ not merged into ERP identities.
 
 Order-line cost centres are optional until their ERP mapping is verified. Missing
 cost-centre data is not replaced with a fabricated department. Receipts and
-invoices are not yet included in this importer.
+invoices, their lines and order-line links, and configured policy passages are imported.
 
 Refresh manually before demonstrations initially. Five-minute polling and an
 immediate refresh after confirmed ERP writes are the intended next synchronization
@@ -25,7 +25,11 @@ RETURN p.snapshot, p.sync_started_at, p.synced_at;
 
 Run `make graph-slack` for the unified listener. Existing order questions select
 the latest published ERP projection on each request. Supplier comparisons,
-policy/invoice research and purchase proposals use the inherited live ERP reader.
+policy/invoice research and purchase proposals now load evidence exclusively from
+Neo4j. The adapter traverses document-to-line relationships and returns the existing
+typed record shapes to the original calculation and conversation logic. Policy
+passages come from the same graph snapshot; embedding similarity is calculated in
+Python. ERP reads are confined to synchronization, and ERP writes to approval handlers.
 Facility/disruption investigations explicitly use the synthetic demo snapshot;
 its authored claims are not mapped to actual ERP suppliers.
 

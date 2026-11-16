@@ -1,8 +1,8 @@
 # Northwind Components purchasing policy
 
-## Human approval
+## Direct graph ordering
 
-An authorised person must approve the exact order before ERPNext changes. A line total of 5,000 EUR or less is submitted by that approval. A line total above 5,000 EUR is saved as a draft until a different authorised person submits it. The assistant prepares the proposal. It does not choose the limit or skip the approval.
+An explicit complete purchase request creates an order directly in Neo4j. There are no drafts or approval buttons in this test application. Ask for missing supplier, item, quantity or delivery details. Recording an order does not send it to a supplier. Neo4j is authoritative; ERPNext is not used.
 
 ## Recorded prices
 

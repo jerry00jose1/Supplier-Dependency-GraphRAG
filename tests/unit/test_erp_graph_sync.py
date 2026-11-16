@@ -12,6 +12,14 @@ class ERP:
 
     def list_all(self, doctype: str, fields: list[str], **kwargs: Any) -> list[dict[str, Any]]:
         return {
+            "Purchase Receipt": [{"name": "R1", "posting_date": "2026-11-20", "docstatus": 1}],
+            "Purchase Receipt Item": [{"name": "RL1", "parent": "R1",
+                                       "purchase_order_item": "LINE-1", "qty": 2}],
+            "Purchase Invoice": [{"name": "I1", "posting_date": "2026-11-20", "docstatus": 1,
+                                  "supplier": "Supplier A", "bill_no": "B1"}],
+            "Purchase Invoice Item": [{"name": "IL1", "parent": "I1", "po_detail": "LINE-1",
+                                       "purchase_order": "PO-1", "qty": 2, "rate": 13,
+                                       "item_code": "ITEM-1"}],
             "Purchase Order": [{"name": "PO-1", "supplier": "Supplier A",
                                 "transaction_date": "2026-11-16", "currency": "EUR",
                                 "status": "Cancelled", "docstatus": 2, "company": "Demo"}],
@@ -24,9 +32,9 @@ class ERP:
 
 def test_preserves_status_and_real_provenance_without_inventing_cost_centre() -> None:
     graph = build_erp_snapshot(Settings(_env_file=None), ERP())  # type: ignore[arg-type]
-    assert len(graph.nodes) == 4
-    assert len(graph.edges) == 3
-    assert all(n.origin == "erpnext" for n in graph.nodes)
+    assert len([n for n in graph.nodes if n.origin == "erpnext"]) == 8
+    assert sum(e.relation == "MATCHES_ORDER_LINE" for e in graph.edges) == 2
+    assert any(n.label == "Passage" for n in graph.nodes)
     order = next(n for n in graph.nodes if n.label == "PurchaseOrder")
     assert order.properties["status"] == "Cancelled"
     assert order.properties["docstatus"] == 2

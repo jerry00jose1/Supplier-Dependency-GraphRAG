@@ -9,7 +9,6 @@ import logging
 import threading
 from datetime import datetime
 from typing import Any
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,18 +17,15 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
 
 from procurement_agent.agent.model import openai_chat_model
-from procurement_agent.approvals.service import ApprovalVault, init_database
-from procurement_agent.approvals.writer import ErpNextDraftWriter
+from procurement_agent.approvals.service import ApprovalVault
 from procurement_agent.config import Settings, get_settings
-from procurement_agent.erp.client import ErpNextReadClient
 from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Reply
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
+from procurement_agent.knowledge_graph.operations import GraphVault
+from procurement_agent.knowledge_graph.procurement import load_evidence
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
 from procurement_agent.knowledge_graph.store import GraphSettings
-from procurement_agent.policy.retrieve import shared_embedder
-from procurement_agent.slack.decisions import apply_decision
 from procurement_agent.slack.item_reply import ItemReply, reply_to_text
-from procurement_agent.slack.messages import order_card
 from procurement_agent.slack.router import order_answer, route_question
 from procurement_agent.slack.storage import ThreadStore, slack_text
 
@@ -38,13 +34,10 @@ def main() -> None:
     settings = get_settings()
     logging.basicConfig(level=settings.app_log_level)
     bot_token, app_token, signing_secret = _tokens(settings)
-    vault = ApprovalVault(
-        init_database(settings.graph_app_database_url), settings.approver_user_ids,
-    )
-    writer = ErpNextDraftWriter(settings)
     model = openai_chat_model(settings)
     graph_settings = GraphSettings()
     driver = graph_settings.driver()
+    vault = GraphVault(driver, graph_settings.database)
     receipts = ThreadStore(ROOT / ".cache/unified_deliveries.sqlite3")
     lock = threading.Lock()
     app = App(token=bot_token, signing_secret=signing_secret)
@@ -55,6 +48,7 @@ def main() -> None:
         text = str(command.get("text") or "")
         channel = str(command["channel_id"])
         conversation_id = conversation_key(channel, str(command["user_id"]))
+        vault.event_id = str(command.get("trigger_id") or command.get("command_ts") or "")
         _deliver(
             client,
             vault,
@@ -84,6 +78,7 @@ def main() -> None:
             command_context = vault.conversation(conversation_key(channel, "", root_ts))
             if command_context:
                 vault.save_conversation(conversation_id, command_context)
+        vault.event_id = event_id
         reply = _unified_answer(
             settings, vault, model, driver, str(event.get("text") or ""), conversation_id,
         )
@@ -100,37 +95,6 @@ def main() -> None:
             conversation_id=conversation_id,
         )
         receipts.sent(event_id)
-
-    @app.action("approve_proposal")
-    def approve(ack: Any, body: dict[str, Any], client: Any) -> None:
-        ack()
-        _act(
-            vault,
-            writer,
-            body,
-            client,
-            "approve_proposal",
-            settings.erpnext_base_url,
-            settings.order_submit_limit,
-        )
-
-    @app.action("submit_proposal")
-    def submit(ack: Any, body: dict[str, Any], client: Any) -> None:
-        ack()
-        _act(
-            vault,
-            writer,
-            body,
-            client,
-            "submit_proposal",
-            settings.erpnext_base_url,
-            settings.order_submit_limit,
-        )
-
-    @app.action("reject_proposal")
-    def reject(ack: Any, body: dict[str, Any], client: Any) -> None:
-        ack()
-        _act(vault, writer, body, client, "reject_proposal", None, settings.order_submit_limit)
 
     print("Unified Slack ready: ERP orders, procurement and graph investigations.", flush=True)
     try:
@@ -151,7 +115,7 @@ def _unified_answer(
         else:
             if route.workflow == "orders":
                 answer = order_answer(driver, GraphSettings().database,
-                                      f"erpnext:{settings.erpnext_site}", state)
+                                      "procurement:active", state)
             else:
                 # Synthetic facility evidence remains scoped to the demo, never ERP identities.
                 reader = GraphReader(driver, GraphSettings().database, build_demo().fingerprint,
@@ -189,11 +153,13 @@ def _answer(
     if not text.strip():
         return ItemReply("Name an item, for example: I need S-66100", None, None, None, None)
     try:
-        orders, order_items, receipts, receipt_items, invoices, invoice_items = _load(settings)
+        groups, policy, refreshed = load_evidence(settings)
+        orders, order_items, receipts, receipt_items, invoices, invoice_items = groups
     except Exception:
-        logging.getLogger(__name__).exception("ERP lookup failed")
-        return ItemReply("ERPNext is unavailable. Please try again.", None, None, None, None)
-    return reply_to_text(
+        logging.getLogger(__name__).exception("Graph evidence lookup failed")
+        return ItemReply("Graph evidence is unavailable. Run make graph-sync or try again shortly.",
+                         None, None, None, None)
+    reply = reply_to_text(
         vault,
         text,
         orders,
@@ -205,64 +171,12 @@ def _answer(
         conversation_id=conversation_id,
         invoices=invoices,
         invoice_items=invoice_items,
-        embedder=shared_embedder(),
+        embedder=policy,
         submit_limit=settings.order_submit_limit,
     )
 
-
-def _load(
-    settings: Settings,
-) -> tuple[
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-]:
-    with ErpNextReadClient(settings) as erp:
-        orders = erp.list_all(
-            "Purchase Order",
-            ["name", "supplier", "transaction_date", "company", "currency", "docstatus"],
-            filters=[["docstatus", "=", 1]],
-        )
-        order_items = erp.list_all(
-            "Purchase Order Item",
-            [
-                "name",
-                "parent",
-                "item_code",
-                "qty",
-                "uom",
-                "rate",
-                "schedule_date",
-                "description",
-                "warehouse",
-                "received_qty",
-            ],
-            parent="Purchase Order",
-        )
-        receipts = erp.list_all(
-            "Purchase Receipt",
-            ["name", "posting_date", "docstatus"],
-            filters=[["docstatus", "=", 1]],
-        )
-        receipt_items = erp.list_all(
-            "Purchase Receipt Item",
-            ["name", "parent", "purchase_order_item"],
-            parent="Purchase Receipt",
-        )
-        invoices = erp.list_all(
-            "Purchase Invoice",
-            ["name", "supplier", "bill_no", "posting_date", "docstatus"],
-            filters=[["docstatus", "=", 1]],
-        )
-        invoice_items = erp.list_all(
-            "Purchase Invoice Item",
-            ["name", "parent", "item_code", "qty", "rate", "purchase_order", "po_detail"],
-            parent="Purchase Invoice",
-        )
-    return orders, order_items, receipts, receipt_items, invoices, invoice_items
+    return ItemReply(f"Graph evidence refreshed {refreshed}.\n\n" + reply.text,
+                     reply.blocks, reply.proposal_id, reply.slack_channel, reply.slack_ts)
 
 
 def conversation_key(channel: str, user: str, thread_ts: str = "commands") -> str:
@@ -305,51 +219,6 @@ def _deliver(
         if saved:
             # Resolve this alias before user-specific keys in on_message.
             vault.save_conversation(conversation_key(channel, "", ts), saved)
-
-
-def _act(
-    vault: ApprovalVault,
-    writer: ErpNextDraftWriter,
-    body: dict[str, Any],
-    client: Any,
-    action: str,
-    erp_base_url: str | None = None,
-    submit_limit: float = 5000,
-) -> None:
-    actions = body.get("actions") or []
-    proposal_id = actions[0].get("value") if actions else ""
-    user_id = str((body.get("user") or {}).get("id") or "")
-    if not isinstance(proposal_id, str) or not proposal_id:
-        text = "The button did not carry a proposal id."
-    else:
-        text = apply_decision(
-            vault,
-            writer,
-            action=action,
-            proposal_id=proposal_id,
-            user_id=user_id,
-            submit_limit=submit_limit,
-        )
-    channel = (body.get("channel") or {}).get("id")
-    message_ts = (body.get("message") or {}).get("ts")
-    stored = vault.get(proposal_id) if isinstance(proposal_id, str) and proposal_id else None
-    if stored and stored.status == "executed" and stored.erp_document_name and erp_base_url:
-        url = (
-            erp_base_url.rstrip("/")
-            + "/app/purchase-order/"
-            + quote(stored.erp_document_name, safe="")
-        )
-        text += f" <{url}|Open in ERPNext>"
-    if channel and message_ts:
-        if stored and stored.status == "drafted":
-            card, blocks = order_card(text, stored, submit_limit=submit_limit)
-            client.chat_update(channel=channel, ts=message_ts, text=card, blocks=blocks)
-        elif (stored and stored.status == "executed") or text == "No order created.":
-            client.chat_update(channel=channel, ts=message_ts, text=text, blocks=[])
-        else:
-            client.chat_postEphemeral(channel=channel, user=user_id, text=text)
-    else:
-        print(text)
 
 
 def _tokens(settings: Settings) -> tuple[str, str, str]:

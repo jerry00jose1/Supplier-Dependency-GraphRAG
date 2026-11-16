@@ -11,11 +11,11 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 Label = Literal[
     "Supplier", "Item", "PurchaseOrder", "OrderLine", "CostCentre", "Facility",
-    "Document", "Passage", "Claim",
+    "Document", "Passage", "Claim", "Receipt", "ReceiptLine", "Invoice", "InvoiceLine",
 ]
 Relation = Literal[
     "FROM_SUPPLIER", "CONTAINS", "ORDERS", "CHARGED_TO", "SUPPORTS",
-    "SUBJECT", "OBJECT", "FOR_ITEM",
+    "SUBJECT", "OBJECT", "FOR_ITEM", "MATCHES_ORDER_LINE",
 ]
 
 
@@ -84,7 +84,9 @@ class Snapshot(BaseModel):
             raise ValueError("Duplicate relationships")
         allowed = {
             "FROM_SUPPLIER": {("PurchaseOrder", "Supplier")},
-            "CONTAINS": {("PurchaseOrder", "OrderLine"), ("Document", "Passage")},
+            "CONTAINS": {("PurchaseOrder", "OrderLine"), ("Document", "Passage"),
+                         ("Receipt", "ReceiptLine"), ("Invoice", "InvoiceLine")},
+            "MATCHES_ORDER_LINE": {("ReceiptLine", "OrderLine"), ("InvoiceLine", "OrderLine")},
             "ORDERS": {("OrderLine", "Item")},
             "CHARGED_TO": {("OrderLine", "CostCentre")},
             "SUPPORTS": {("Passage", "Claim")},
