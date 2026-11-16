@@ -18,6 +18,13 @@ route it through ERPNext approval, and report the status in Slack. See the
 
 ## Current status
 
+The unified Slack entry point (`make graph-slack`) now routes actual ERP order
+history through the latest imported Neo4j projection and restores inherited
+supplier comparisons, policy/invoice research, purchase preparation and Slack
+approval buttons. Run `make graph-sync` to refresh order data; synchronization is
+currently manual. Facility/disruption questions still use the explicitly synthetic
+demo evidence. See [ERP integration and Slack examples](docs/erp-graph-sync.md).
+
 **The first knowledge-graph milestone is implemented:** local Neo4j, validated
 Mizan/synthetic demo ingestion, repeatable snapshots, and three investigation
 queries. Entity-aware LLM answers and a Slack thread listener are also implemented;
