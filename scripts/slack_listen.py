@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Listen in Slack for an item request and post one proposal to approve."""
+"""Listen in Slack and create complete purchase requests directly in Neo4j."""
 
 from __future__ import annotations
 
@@ -45,6 +45,10 @@ def main() -> None:
     @app.command("/propose")
     def propose(ack: Any, command: dict[str, Any], client: Any) -> None:
         ack()
+        with lock:
+            handle_command(command, client)
+
+    def handle_command(command: dict[str, Any], client: Any) -> None:
         text = str(command.get("text") or "")
         channel = str(command["channel_id"])
         conversation_id = conversation_key(channel, str(command["user_id"]))
@@ -96,7 +100,7 @@ def main() -> None:
         )
         receipts.sent(event_id)
 
-    print("Unified Slack ready: ERP orders, procurement and graph investigations.", flush=True)
+    print("Graph-only Slack ready: direct Neo4j orders and procurement research.", flush=True)
     try:
         socket: Any = SocketModeHandler(app, app_token)
         socket.start()
@@ -138,7 +142,7 @@ def _unified_answer(
     except Exception:
         logging.getLogger(__name__).exception("Unified Slack request failed")
         return ItemReply("I could not complete that request. Please retry with a supplier name, "
-                         "purchase order ID, or item code. No ERP action was taken by the router.",
+                         "purchase order ID, or item code. Check order history before retrying.",
                          None, None, None, None)
 
 

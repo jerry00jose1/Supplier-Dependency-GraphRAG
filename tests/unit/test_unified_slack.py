@@ -40,7 +40,7 @@ def test_missing_snapshot_does_not_query_orders() -> None:
     driver = MagicMock()
     session = driver.session.return_value.__enter__.return_value
     session.run.return_value.single.return_value = None
-    assert "No ERP snapshot" in order_answer(driver, "neo4j", "erpnext:test", {})
+    assert "not initialized" in order_answer(driver, "neo4j", "procurement:active", {})
     assert session.run.call_count == 1
 
 

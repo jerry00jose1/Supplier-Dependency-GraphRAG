@@ -357,41 +357,8 @@ def test_slack_delivery_updates_revised_card_and_threads_new_replies(demo):
     assert state.proposal_id == revised.proposal_id
 
 
-def test_stale_click_does_not_remove_the_new_card(demo):
+def test_active_listener_has_no_approval_execution_handler():
     slack = runpy.run_path(str(ROOT / "scripts/slack_listen.py"))
-    first = demo.prepare()
-    demo.vault.remember_slack(first.proposal_id, "C1", "123.456")
-    revised = demo.say("Make that 30 units", intent("update", qty=30))
+    assert "_act" not in slack
+    assert "ErpNextDraftWriter" not in slack
 
-    class Client:
-        def __init__(self):
-            self.updated = []
-            self.ephemeral = []
-
-        def chat_update(self, **kwargs):
-            self.updated.append(kwargs)
-
-        def chat_postEphemeral(self, **kwargs):
-            self.ephemeral.append(kwargs)
-
-    class Writer:
-        def create_draft(self, order: DraftPurchaseOrder) -> str:
-            assert order.items[0].qty == 30
-            return "PO-DEMO"
-
-        def submit(self, name: str) -> None:
-            return None
-
-    client = Client()
-    body = {
-        "actions": [{"value": first.proposal_id}],
-        "user": {"id": "U1"},
-        "channel": {"id": "C1"},
-        "message": {"ts": "123.456"},
-    }
-    slack["_act"](demo.vault, Writer(), body, client, "approve_proposal")
-    assert len(client.ephemeral) == 1 and not client.updated
-    body["actions"] = [{"value": revised.proposal_id}]
-    slack["_act"](demo.vault, Writer(), body, client, "approve_proposal", "http://localhost:8080")
-    assert "http://localhost:8080/app/purchase-order/PO-DEMO" in client.updated[-1]["text"]
-    assert client.updated[-1]["blocks"] == []

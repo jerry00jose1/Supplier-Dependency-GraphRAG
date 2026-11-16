@@ -59,7 +59,7 @@ def reply_to_text(
         )
     except Exception:
         logging.getLogger(__name__).exception("Buyer request failed")
-        return _say("I could not complete that request. Please try again; no ERP order was sent.")
+        return _say("I could not complete that request. Check order history before retrying.")
     if filed is None:
         return _say(decision or "Name an item this company has purchased, for example S-66100.")
     stored = filed.stored

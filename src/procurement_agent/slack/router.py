@@ -23,7 +23,7 @@ class Route(BaseModel):
 
 
 class QueryOrders(BaseModel):
-    """Read existing ERP purchase documents by supplier, document ID or status.
+    """Read existing graph purchase documents by supplier, document ID or status.
 
     Use only when the user intends to inspect already recorded orders. An item identifier
     is not a purchase document identifier. This tool cannot source or acquire items.
@@ -113,7 +113,7 @@ def route_question(
 
 
 def order_answer(driver: Any, database: str, projection: str, state: dict[str, Any]) -> str:
-    """Use the published ERP snapshot only. Never execute generated Cypher."""
+    """Use the authoritative operational graph only. Never execute generated Cypher."""
     with driver.session(database=database) as session:
         marker = session.run(
             "MATCH (p:GraphProjection {id:$id}) "
@@ -121,7 +121,7 @@ def order_answer(driver: Any, database: str, projection: str, state: dict[str, A
             "RETURN p.snapshot AS snapshot, p.synced_at AS synced_at", id=projection,
         ).single()
         if marker is None:
-            return "No ERP snapshot is ready. Run make graph-sync, then try again."
+            return "Operational graph is not initialized."
         supplier = state.get("supplier", "")
         if supplier:
             matches = session.run(
@@ -139,7 +139,7 @@ def order_answer(driver: Any, database: str, projection: str, state: dict[str, A
             if len(matches) != 1:
                 names = ", ".join(row["name"] for row in matches)
                 return ("Please specify an exact supplier name. Matches: " + names if matches else
-                        f"No supplier matching '{supplier}' in the ERP snapshot.")
+                        f"No supplier matching '{supplier}' in the operational graph.")
             supplier = matches[0]["name"]
         rows = session.run(
             "MATCH (o:PurchaseOrder {snapshot:$snapshot})-[:FROM_SUPPLIER]->(s:Supplier) "
@@ -155,7 +155,7 @@ def order_answer(driver: Any, database: str, projection: str, state: dict[str, A
             snapshot=marker["snapshot"], supplier=supplier, order=state.get("order", ""),
             status=state.get("status", ""), offset=state.get("offset", 0),
         ).data()
-    parts = [f"ERPNext orders — snapshot refreshed {marker['synced_at']}."]
+    parts = [f"Neo4j orders — initialized {marker['synced_at']}."]
     if not rows:
         parts.append("No matching purchase orders in this snapshot.")
     for row in rows[:20]:
@@ -168,7 +168,7 @@ def order_answer(driver: Any, database: str, projection: str, state: dict[str, A
                                  f"{line['uom']} at {line['rate']} {row['currency']}; "
                                  f"received {line['received']}; due {line['due']}")
             if len(row["lines"]) > 20:
-                parts.append("Line details limited to 20; inspect the full order in ERPNext.")
+                parts.append("Line details limited to 20; narrow the requested details.")
     if len(rows) > 20:
         parts.append("Showing 20 orders. Reply 'next page' for more.")
     parts.append("Draft, submitted and cancelled records are included unless filtered by status. "

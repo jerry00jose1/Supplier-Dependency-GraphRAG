@@ -92,7 +92,7 @@ is clarify. Do not stretch a category to cover it. Policy and invoice never prep
 purchase: an explicit request to prepare/buy/order, even when required details are missing.
 update: corrections ('make that 30 units') or answers to a pending purchase clarification.
 clarify: greetings, unsupported requests, multiple items, ambiguous instructions, or requests
-to approve/submit/cancel an order. Approval is exclusively through Slack buttons.
+to approve/submit/cancel an order. In graph mode complete purchases are recorded directly.
 For 'Order some packaging', use purchase with item='packaging' and qty=null.
 Preserve vague product phrases in item so Python can ask for an exact item code.
 Extract only explicit values in THIS message; absent fields must be null. Python merges context.

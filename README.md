@@ -1,5 +1,25 @@
 # Supplier Dependency GraphRAG
 
+## Current runtime: graph-only procurement
+
+Neo4j is now the authoritative procurement database. `make graph-slack` starts the
+direct-order assistant: complete purchase requests create orders in Neo4j with no
+drafts or approval buttons. ERPNext is not contacted by this runtime; `make graph-sync`
+is disabled. Existing records were copied into the `procurement:active` operational
+graph, preserving the original snapshots and their provenance. Historical ERP status
+fields remain on imported records; newly created graph orders have status `Open`.
+
+Conversation state is also stored in Neo4j. Existing local conversation/proposal
+databases are retained as history but are not active. Slack delivery receipts remain
+local transport metadata. Duplicate Slack events cannot create a second graph order.
+Missing purchase details trigger clarification. Orders use recorded historical prices
+under the existing purchasing logic; storing an order does not send it to a supplier.
+Edits to an already created order are not implemented; partial requests can be revised
+before creation. The facility/disruption scenario remains explicitly synthetic.
+
+Earlier ERP integration and approval descriptions below document previous milestones
+and are superseded by this runtime description.
+
 A new project for investigating supplier disruptions using a procurement knowledge
 graph and evidence-backed LLM answers.
 
