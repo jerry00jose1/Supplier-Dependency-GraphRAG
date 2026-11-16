@@ -53,4 +53,8 @@ The inherited procurement Slack entry point now uses `GRAPH_APP_DATABASE_URL`,
 defaulting to `graph_app.sqlite3` in this repository, for its conversations,
 proposals and audit records. It no longer uses the original application's
 `DATABASE_URL` for that listener. Override with a dedicated PostgreSQL database
-when needed. Other inherited entry points have not been migrated.
+when needed. `scripts/init_approval_db.py` uses the same project database.
+The legacy `DATABASE_URL` setting is no longer consumed. Unused server, alternate
+API-key, embedding-provider and approval-toggle settings have been removed from
+the configuration template; approval enforcement remains in the execution handlers.
+Both graph Slack compatibility entry points now forward to the unified listener.

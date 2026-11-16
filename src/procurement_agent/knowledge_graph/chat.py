@@ -9,8 +9,8 @@ from procurement_agent.config import get_settings
 from procurement_agent.knowledge_graph.conversation import GraphConversation
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
-from procurement_agent.knowledge_graph.slack_app import ThreadStore
 from procurement_agent.knowledge_graph.store import GraphSettings
+from procurement_agent.slack.storage import ThreadStore
 
 
 def main() -> None:

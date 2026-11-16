@@ -24,8 +24,6 @@ class Settings(BaseSettings):
 
     app_env: Literal["local", "test", "prod"] = "local"
     app_log_level: str = "INFO"
-    app_host: str = "0.0.0.0"
-    app_port: int = 8000
     app_timezone: str = "Europe/Berlin"
 
     erpnext_base_url: str = "http://localhost:8080"
@@ -36,7 +34,6 @@ class Settings(BaseSettings):
     erpnext_api_secret: SecretStr | None = None
     erpnext_timeout_seconds: float = 30.0
 
-    database_url: str = "postgresql+psycopg://procurement:procurement@localhost:5433/procurement"
     # Dedicated state for this project's Slack proposals and conversations.
     graph_app_database_url: str = (
         "sqlite:///" + str(Path(__file__).resolve().parents[2] / "graph_app.sqlite3")
@@ -45,13 +42,8 @@ class Settings(BaseSettings):
     llm_provider: Literal["openai", "deepseek", "anthropic", "gemini"] = "openai"
     llm_model: str = "gpt-4.1-mini"
     openai_api_key: SecretStr | None = None
-    deepseek_api_key: SecretStr | None = None
-    anthropic_api_key: SecretStr | None = None
-    google_api_key: SecretStr | None = None
 
-    embedding_provider: Literal["local", "openai"] = "local"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
-    openai_embedding_model: str = "text-embedding-3-small"
 
     slack_bot_token: SecretStr | None = None
     slack_app_token: SecretStr | None = None
@@ -59,7 +51,6 @@ class Settings(BaseSettings):
     slack_approver_user_ids: str = Field(default="")
     slack_channel_id: str = ""
 
-    require_human_approval_for_erp_writes: bool = True
     order_submit_limit: float = 5000
 
     @property

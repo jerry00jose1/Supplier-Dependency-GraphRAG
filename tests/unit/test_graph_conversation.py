@@ -17,7 +17,7 @@ from procurement_agent.knowledge_graph.conversation import (
     resolve,
 )
 from procurement_agent.knowledge_graph.retrieval import Entity
-from procurement_agent.knowledge_graph.slack_app import SlackInvestigator, ThreadStore, thread_key
+from procurement_agent.slack.storage import ThreadStore, slack_text
 
 
 def plan(**kwargs: Any) -> Plan:
@@ -163,47 +163,19 @@ def test_omitted_critical_evidence_triggers_fallback() -> None:
     assert "[E2]" in reply.text
 
 
-def test_slack_context_is_durable_and_scoped_and_replays_do_not_post(tmp_path: Path) -> None:
+def test_durable_context_and_uncertain_delivery_are_preserved(tmp_path: Path) -> None:
     path = tmp_path / "threads.sqlite3"
-    service = Mock()
-    service.answer.return_value = Reply(
-        text="Finding <@USER>", status="answered", context=Context(snapshot="s", item="item:1")
-    )
-    client = Mock()
-    handler = SlackInvestigator(service, ThreadStore(path), "CHANNEL")
-    event = {"channel": "CHANNEL", "ts": "1", "user": "USER", "text": "Facility X"}
-    handler.handle(event, client)
-    handler.handle(event, client)
-    assert client.chat_postMessage.call_count == 1
-    payload = client.chat_postMessage.call_args.kwargs
-    assert payload["thread_ts"] == "1"
-    assert "<@USER>" not in payload["text"]
-    resumed = SlackInvestigator(service, ThreadStore(path), "CHANNEL")
-    resumed.handle({**event, "ts": "2", "thread_ts": "1", "text": "Which alternatives?"}, client)
-    assert service.answer.call_args.args[1].item == "item:1"
-    assert ThreadStore(path).context(thread_key("CHANNEL", "1", "ANOTHER")).item is None
-    assert ThreadStore(path).context(thread_key("CHANNEL", "OTHER", "USER")).item is None
+    store = ThreadStore(path)
+    reply = Reply(text="Finding", status="answered", context=Context(snapshot="s", item="item:1"))
+    assert store.reserve("event-1", "thread-user", reply)
+    resumed = ThreadStore(path)
+    assert resumed.context("thread-user").item == "item:1"
+    assert resumed.context("another-user").item is None
+    assert resumed.seen("event-1")
+    assert not resumed.reserve("event-1", "thread-user", reply)
+    resumed.sent("event-1")
+    assert resumed.seen("event-1")
 
 
-@pytest.mark.parametrize(
-    "changes", [{"bot_id": "BOT"}, {"subtype": "message_changed"}, {"channel": "OTHER"}]
-)
-def test_slack_ignores_bots_edits_and_other_channels(
-    tmp_path: Path, changes: dict[str, str]
-) -> None:
-    service, client = Mock(), Mock()
-    handler = SlackInvestigator(service, ThreadStore(tmp_path / "s.sqlite3"), "C")
-    handler.handle({"channel": "C", "user": "U", "ts": "1", "text": "hi", **changes}, client)
-    service.answer.assert_not_called()
-    client.chat_postMessage.assert_not_called()
-
-
-def test_uncertain_slack_delivery_is_not_blindly_repeated(tmp_path: Path) -> None:
-    service, client = Mock(), Mock()
-    service.answer.return_value = Reply(text="result", context=Context(), status="answered")
-    client.chat_postMessage.side_effect = TimeoutError()
-    handler = SlackInvestigator(service, ThreadStore(tmp_path / "s.sqlite3"), "C")
-    event = {"channel": "C", "ts": "1", "user": "U", "text": "hi"}
-    handler.handle(event, client)
-    handler.handle(event, client)
-    assert client.chat_postMessage.call_count == 1
+def test_slack_mentions_are_escaped() -> None:
+    assert slack_text("<@USER> & text") == "&lt;@USER&gt; &amp; text"

@@ -25,21 +25,22 @@ from procurement_agent.erp.client import ErpNextReadClient
 from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Reply
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
-from procurement_agent.knowledge_graph.slack_app import ThreadStore, slack_text
 from procurement_agent.knowledge_graph.store import GraphSettings
 from procurement_agent.policy.retrieve import shared_embedder
 from procurement_agent.slack.decisions import apply_decision
 from procurement_agent.slack.item_reply import ItemReply, reply_to_text
 from procurement_agent.slack.messages import order_card
 from procurement_agent.slack.router import order_answer, route_question
+from procurement_agent.slack.storage import ThreadStore, slack_text
 
 
 def main() -> None:
     settings = get_settings()
-    settings = settings.model_copy(update={"database_url": settings.graph_app_database_url})
     logging.basicConfig(level=settings.app_log_level)
     bot_token, app_token, signing_secret = _tokens(settings)
-    vault = ApprovalVault(init_database(settings.database_url), settings.approver_user_ids)
+    vault = ApprovalVault(
+        init_database(settings.graph_app_database_url), settings.approver_user_ids,
+    )
     writer = ErpNextDraftWriter(settings)
     model = openai_chat_model(settings)
     graph_settings = GraphSettings()

@@ -7,6 +7,5 @@ def test_approver_user_ids_parses_csv() -> None:
 
 
 def test_defaults_prefer_local_embeddings() -> None:
-    settings = Settings()
-    assert settings.embedding_provider == "local"
-    assert settings.require_human_approval_for_erp_writes is True
+    settings = Settings(_env_file=None)
+    assert settings.embedding_model == "BAAI/bge-small-en-v1.5"

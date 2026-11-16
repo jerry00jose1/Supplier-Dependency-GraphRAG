@@ -8,7 +8,7 @@ from procurement_agent.knowledge_graph.demo import ROOT
 
 def main() -> None:
     if "--check" in sys.argv:
-        from procurement_agent.knowledge_graph.slack_app import main as check
+        from procurement_agent.slack.check import main as check
 
         check()
     else:
