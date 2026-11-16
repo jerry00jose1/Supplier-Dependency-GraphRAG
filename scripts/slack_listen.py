@@ -21,7 +21,7 @@ from procurement_agent.domain.orders import OrderVault
 from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Reply
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
 from procurement_agent.knowledge_graph.operations import GraphVault
-from procurement_agent.knowledge_graph.procurement import load_evidence
+from procurement_agent.knowledge_graph.procurement import load_graph_evidence
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
 from procurement_agent.knowledge_graph.store import GraphSettings
 from procurement_agent.slack.item_reply import ItemReply, reply_to_text
@@ -114,7 +114,9 @@ def _unified_answer(
     try:
         route, state = route_question(model, vault, conversation_id, text)
         if route.workflow == "procurement":
-            reply = _answer(settings, vault, model, text, conversation_id=conversation_id)
+            reply = _answer(
+                settings, vault, model, text, conversation_id=conversation_id, driver=driver
+            )
         else:
             if route.workflow == "orders":
                 answer = order_answer(driver, GraphSettings().database,
@@ -152,12 +154,12 @@ def _answer(
     text: str,
     *,
     conversation_id: str = "default",
+    driver: Any | None = None,
 ) -> ItemReply:
     if not text.strip():
         return ItemReply("Name an item, for example: I need S-66100", None, None, None, None)
     try:
-        groups, policy, refreshed = load_evidence(settings)
-        orders, order_items, receipts, receipt_items, invoices, invoice_items = groups
+        source = load_graph_evidence(driver)
     except Exception:
         logging.getLogger(__name__).exception("Graph evidence lookup failed")
         return ItemReply("Graph evidence is unavailable. Run make graph-sync or try again shortly.",
@@ -165,19 +167,14 @@ def _answer(
     reply = reply_to_text(
         vault,
         text,
-        orders,
-        order_items,
-        receipts,
-        receipt_items,
-        model,
+        model=model,
         today=datetime.now(ZoneInfo(settings.app_timezone)).date(),
         conversation_id=conversation_id,
-        invoices=invoices,
-        invoice_items=invoice_items,
-        embedder=policy,
+        embedder=source.embedder,
+        source=source,
     )
 
-    return ItemReply(f"Graph evidence refreshed {refreshed}.\n\n" + reply.text,
+    return ItemReply(f"Graph evidence refreshed {source.refreshed}.\n\n" + reply.text,
                      reply.blocks, reply.proposal_id, reply.slack_channel, reply.slack_ts)
 
 

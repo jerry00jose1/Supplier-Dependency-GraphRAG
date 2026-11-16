@@ -17,13 +17,14 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 
 from procurement_agent.agent.evidence import explain_invoices, explain_policy
-from procurement_agent.agent.item_request import FiledPurchase, SellerFact, order_for, seller_facts
+from procurement_agent.agent.item_request import FiledPurchase, SellerFact, order_for
 from procurement_agent.agent.recommendations import (
     SupplierDecision,
     recommend,
     render_recommendations,
 )
 from procurement_agent.domain.orders import OrderVault
+from procurement_agent.knowledge_graph.procurement import InMemoryEvidence, ProcurementEvidence
 from procurement_agent.policy.retrieve import Embedder
 
 
@@ -148,10 +149,10 @@ def run_conversation(
     model: BaseChatModel,
     vault: OrderVault,
     text: str,
-    orders: list[dict[str, Any]],
-    order_items: list[dict[str, Any]],
-    receipts: list[dict[str, Any]],
-    receipt_items: list[dict[str, Any]],
+    orders: list[dict[str, Any]] | None = None,
+    order_items: list[dict[str, Any]] | None = None,
+    receipts: list[dict[str, Any]] | None = None,
+    receipt_items: list[dict[str, Any]] | None = None,
     *,
     today: date,
     conversation_id: str,
@@ -159,22 +160,42 @@ def run_conversation(
     invoice_items: list[dict[str, Any]] | None = None,
     embedder: Embedder | None = None,
     intent: BuyerIntent | None = None,
+    source: ProcurementEvidence | None = None,
 ) -> tuple[str, FiledPurchase | None]:
+    evidence = source or InMemoryEvidence(
+        orders or [],
+        order_items or [],
+        receipts or [],
+        receipt_items or [],
+        invoices=invoices,
+        invoice_items=invoice_items,
+        embedder=embedder,
+    )
+    active_embedder = embedder if embedder is not None else evidence.embedder
     saved = vault.conversation(conversation_id)
     state = Conversation.model_validate_json(saved) if saved else Conversation()
     intent = intent or read_intent(model, text, state, today)
-    codes = sorted({str(row["item_code"]) for row in order_items if row.get("item_code")})
+    codes = evidence.item_codes()
     lookup = {code.casefold(): code for code in codes}
 
     if intent.action == "clarify":
         return _CAPABILITIES, None
     if intent.action == "policy":
-        if embedder is None:
+        if active_embedder is None:
             return "Policy search is unavailable. No purchase was created.", None
-        return explain_policy(model, text, embedder), None
+        return explain_policy(model, text, active_embedder), None
     if intent.action == "invoice":
+        if not evidence.has_invoices():
+            return "Invoice records are not loaded. No purchase was created.", None
         return (
-            explain_invoices(model, text, invoices, invoice_items, order_items),
+            explain_invoices(
+                model,
+                text,
+                invoices,
+                invoice_items,
+                order_items or [],
+                mismatches=evidence.invoice_mismatches(),
+            ),
             None,
         )
 
@@ -183,7 +204,7 @@ def run_conversation(
         if code is None:
             return _ask_item(codes), None
         state.context_item = code
-        facts = seller_facts(code, orders, order_items, receipts, receipt_items)
+        facts = evidence.seller_facts(code)
         if intent.action == "explain" and not state.recommendations:
             return "Compare suppliers first so I can explain a specific recommendation.", None
         objective = state.objective if intent.action == "explain" else intent.objective
@@ -277,9 +298,7 @@ def run_conversation(
         missing.append("Which item (item code) do you want?")
     if state.qty is None:
         missing.append("How many units do you need? Please give a positive quantity.")
-    facts = (
-        seller_facts(state.item, orders, order_items, receipts, receipt_items) if state.item else []
-    )
+    facts = evidence.seller_facts(state.item) if state.item else []
     facts = _eligible(facts, state.excluded_suppliers)
     chosen = _supplier(state.supplier, facts)
     recommendation_text = ""

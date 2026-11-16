@@ -11,6 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from procurement_agent.agent.graph import run_conversation
 from procurement_agent.domain.orders import OrderVault
+from procurement_agent.knowledge_graph.procurement import ProcurementEvidence
 from procurement_agent.policy.retrieve import Embedder
 
 
@@ -26,17 +27,18 @@ class ItemReply:
 def reply_to_text(
     vault: OrderVault,
     text: str,
-    orders: list[dict[str, Any]],
-    order_items: list[dict[str, Any]],
-    receipts: list[dict[str, Any]],
-    receipt_items: list[dict[str, Any]],
-    model: BaseChatModel,
+    orders: list[dict[str, Any]] | None = None,
+    order_items: list[dict[str, Any]] | None = None,
+    receipts: list[dict[str, Any]] | None = None,
+    receipt_items: list[dict[str, Any]] | None = None,
+    model: BaseChatModel | Any = None,
     *,
     today: date,
     conversation_id: str = "default",
     invoices: list[dict[str, Any]] | None = None,
     invoice_items: list[dict[str, Any]] | None = None,
     embedder: Embedder | None = None,
+    source: ProcurementEvidence | None = None,
 ) -> ItemReply:
     if not text.strip():
         return _say("Name an item, for example: I need S-66100")
@@ -54,6 +56,7 @@ def reply_to_text(
             invoices=invoices,
             invoice_items=invoice_items,
             embedder=embedder,
+            source=source,
         )
     except Exception:
         logging.getLogger(__name__).exception("Buyer request failed")

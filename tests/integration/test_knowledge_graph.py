@@ -11,6 +11,7 @@ from procurement_agent.knowledge_graph.conversation import Context, GraphConvers
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
 from procurement_agent.knowledge_graph.evaluate import EvidenceEcho, cases
 from procurement_agent.knowledge_graph.models import Snapshot
+from procurement_agent.knowledge_graph.procurement import load_graph_evidence
 from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
 from procurement_agent.knowledge_graph.store import GraphSettings, load_snapshot
 
@@ -62,3 +63,22 @@ def test_ten_conversation_retrieval_scenarios() -> None:
             assert set(case["required_assessments"]).issubset(
                 {e.facts.get("assessment") for e in result.evidence}
             ), case["name"]
+
+
+def test_targeted_graph_evidence_queries_without_full_table_scan() -> None:
+    settings = GraphSettings()
+    with settings.driver() as driver:
+        evidence = load_graph_evidence(driver, settings.database)
+        codes = evidence.item_codes()
+        assert "S-66100" in codes
+        sellers = evidence.seller_facts("S-66100")
+        assert len(sellers) == 5
+        assert any(s.supplier == "Jebel Enterprises LLC 120" for s in sellers)
+        po = evidence.purchase_order("PUR-ORD-2026-00059")
+        assert po is not None and po["order"]["supplier"] == "Jebel Services LLC 075"
+        mismatches = evidence.invoice_mismatches(
+            supplier="Jebel Services LLC 075", invoice_name="ACC-PINV-2026-00068"
+        )
+        assert len(mismatches) == 2
+        assert any("quantity" in m.reasons and "price" in m.reasons for m in mismatches)
+

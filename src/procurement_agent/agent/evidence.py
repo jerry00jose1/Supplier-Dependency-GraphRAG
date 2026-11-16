@@ -66,10 +66,15 @@ def explain_invoices(
     invoices: list[dict[str, Any]] | None,
     invoice_items: list[dict[str, Any]] | None,
     order_items: list[dict[str, Any]],
+    *,
+    mismatches: list[InvoiceMismatch] | None = None,
 ) -> str:
-    if invoices is None or invoice_items is None:
-        return "Invoice records are not loaded. No purchase was created."
-    rows = invoice_mismatches(invoice_items, invoices, order_items)
+    if mismatches is None:
+        if invoices is None or invoice_items is None:
+            return "Invoice records are not loaded. No purchase was created."
+        rows = invoice_mismatches(invoice_items, invoices, order_items)
+    else:
+        rows = mismatches
     if not rows:
         return (
             "Submitted invoices match the received quantities and order prices. "
