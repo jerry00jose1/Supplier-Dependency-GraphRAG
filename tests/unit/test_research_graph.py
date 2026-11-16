@@ -9,11 +9,9 @@ import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable, RunnableLambda
-from sqlalchemy import func, select
 
 from procurement_agent.agent.graph import MAX_ROUNDS, MAX_TOOL_CALLS, build_buyer_graph
-from procurement_agent.approvals.models import ProposalRow
-from procurement_agent.approvals.service import ApprovalVault, init_database
+from procurement_agent.domain.orders import InMemoryVault
 
 TODAY = date(2026, 11, 14)
 
@@ -57,7 +55,6 @@ class ResearchModel(GenericFakeChatModel):
                 assert isinstance(messages[-1], ToolMessage)
                 payload = json.loads(messages[-1].content)
                 if count == 2:
-                    # Choose the next tool and its argument from the preceding result.
                     po = payload["rows"][0]["purchase_order"]
                     assert po == "PO-X2"
                     return call("get_purchase_order", {"name": po}, "order")
@@ -78,9 +75,8 @@ def root(action: str = "invoice", **extra: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def world(tmp_path):
-    sessions = init_database(f"sqlite:///{tmp_path}/vault.sqlite")
-    vault = ApprovalVault(sessions, {"BUYER"})
+def world():
+    vault = InMemoryVault()
     path = Path(__file__).resolve().parents[1] / "fixtures/demo_procurement.json"
     records = json.loads(path.read_text())
     records["invoices"] = [{"name": "INV-1", "supplier": "Supplier X", "docstatus": 1}]
@@ -105,11 +101,11 @@ def world(tmp_path):
             embedder=FlatEmbedder(),
         )
 
-    return vault, sessions, graph
+    return vault, graph
 
 
 def test_combined_investigation_chooses_next_tool_from_actual_results(world):
-    vault, sessions, graph = world
+    vault, graph = world
     model = ResearchModel(
         messages=iter([]),
         adaptive=True,
@@ -131,13 +127,12 @@ def test_combined_investigation_chooses_next_tool_from_actual_results(world):
     assert "invoice-match" in text and "billed price 12 against order price 10" in text
     assert result["rounds"] == 4 and result["tool_calls"] == 3
     assert len(model.observed) == 4
-    with sessions() as session:
-        assert session.scalar(select(func.count()).select_from(ProposalRow)) == 0
+    assert len(vault.orders) == 0
     assert vault.conversation("research") is None
 
 
 def test_cannot_invent_source_identifiers_in_combined_answer(world):
-    _, _, graph = world
+    _, graph = world
     model = ResearchModel(
         messages=iter([]),
         structured=[
@@ -156,7 +151,7 @@ def test_cannot_invent_source_identifiers_in_combined_answer(world):
 
 
 def test_unknown_write_tool_is_rejected_and_model_can_recover(world):
-    _, sessions, graph = world
+    vault, graph = world
     model = ResearchModel(
         messages=iter([]),
         structured=[root()],
@@ -170,12 +165,11 @@ def test_unknown_write_tool_is_rejected_and_model_can_recover(world):
     errors = [message for message in model.observed[1] if isinstance(message, ToolMessage)]
     assert "disallowed" in errors[0].content
     assert "No invoice exceptions" in result["result"][0]
-    with sessions() as session:
-        assert session.scalar(select(func.count()).select_from(ProposalRow)) == 0
+    assert len(vault.orders) == 0
 
 
 def test_repeated_tool_loop_stops_at_reasoning_budget(world):
-    _, _, graph = world
+    _, graph = world
     model = ResearchModel(
         messages=iter([]),
         structured=[root()],
@@ -188,7 +182,7 @@ def test_repeated_tool_loop_stops_at_reasoning_budget(world):
 
 
 def test_parallel_tool_batch_is_capped_before_more_tools_execute(world):
-    _, _, graph = world
+    _, graph = world
     batch = AIMessage(
         content="",
         tool_calls=[
@@ -203,7 +197,7 @@ def test_parallel_tool_batch_is_capped_before_more_tools_execute(world):
 
 
 def test_invalid_tool_arguments_return_to_model_for_correction(world):
-    _, _, graph = world
+    _, graph = world
     model = ResearchModel(
         messages=iter([]),
         structured=[root()],
@@ -219,7 +213,7 @@ def test_invalid_tool_arguments_return_to_model_for_correction(world):
 
 
 def test_compile_has_real_conditional_loop_and_purchase_branch(world):
-    _, _, graph = world
+    _, graph = world
     model = ResearchModel(messages=iter([]), structured=[root("clarify")])
     compiled = graph(model)
     edges = {(edge.source, edge.target) for edge in compiled.get_graph().edges}
@@ -233,7 +227,7 @@ def test_compile_has_real_conditional_loop_and_purchase_branch(world):
 
 
 def test_tool_cannot_drop_explicit_supplier_exclusions(world):
-    vault, _, graph = world
+    vault, graph = world
     model = ResearchModel(
         messages=iter([]),
         structured=[
@@ -258,13 +252,13 @@ def test_tool_cannot_drop_explicit_supplier_exclusions(world):
         "result"
     ]
     assert "Supplier Y" in text and "Supplier X" not in text and filed is None
-    state = json.loads(vault.conversation("research"))
+    state = json.loads(vault.conversation("research") or "{}")
     assert state["excluded_suppliers"] == ["Supplier X"]
     assert state["objective"] == "cheapest"
 
 
 def test_compiled_graph_does_not_leak_evidence_into_next_invocation(world):
-    _, _, graph = world
+    _, graph = world
     model = ResearchModel(
         messages=iter([]),
         structured=[root(), root()],

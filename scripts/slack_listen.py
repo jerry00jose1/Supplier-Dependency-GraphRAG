@@ -14,11 +14,10 @@ from zoneinfo import ZoneInfo
 from langchain_core.language_models.chat_models import BaseChatModel
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from slack_sdk.errors import SlackApiError
 
 from procurement_agent.agent.model import openai_chat_model
-from procurement_agent.approvals.service import ApprovalVault
 from procurement_agent.config import Settings, get_settings
+from procurement_agent.domain.orders import OrderVault
 from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Reply
 from procurement_agent.knowledge_graph.demo import ROOT, build_demo
 from procurement_agent.knowledge_graph.operations import GraphVault
@@ -109,7 +108,7 @@ def main() -> None:
 
 
 def _unified_answer(
-    settings: Settings, vault: ApprovalVault, model: BaseChatModel,
+    settings: Settings, vault: OrderVault, model: BaseChatModel,
     driver: Any, text: str, conversation_id: str,
 ) -> ItemReply:
     try:
@@ -148,7 +147,7 @@ def _unified_answer(
 
 def _answer(
     settings: Settings,
-    vault: ApprovalVault,
+    vault: OrderVault,
     model: BaseChatModel,
     text: str,
     *,
@@ -176,7 +175,6 @@ def _answer(
         invoices=invoices,
         invoice_items=invoice_items,
         embedder=policy,
-        submit_limit=settings.order_submit_limit,
     )
 
     return ItemReply(f"Graph evidence refreshed {refreshed}.\n\n" + reply.text,
@@ -189,24 +187,13 @@ def conversation_key(channel: str, user: str, thread_ts: str = "commands") -> st
 
 def _deliver(
     client: Any,
-    vault: ApprovalVault,
+    vault: OrderVault,
     channel: str,
     reply: ItemReply,
     *,
     thread_ts: str | None = None,
     conversation_id: str | None = None,
 ) -> None:
-    if reply.slack_channel and reply.slack_ts:
-        try:
-            client.chat_update(
-                channel=reply.slack_channel,
-                ts=reply.slack_ts,
-                text=reply.text,
-                blocks=reply.blocks or [],
-            )
-            return
-        except SlackApiError:
-            logging.getLogger(__name__).exception("Card update failed; posting a new card")
     payload: dict[str, Any] = {"channel": channel, "text": reply.text}
     if thread_ts:
         payload["thread_ts"] = thread_ts
@@ -215,8 +202,6 @@ def _deliver(
     response = client.chat_postMessage(**payload)
     getter = getattr(response, "get", None)
     ts = getter("ts") if callable(getter) else None
-    if reply.proposal_id and isinstance(ts, str):
-        vault.remember_slack(reply.proposal_id, channel, ts)
     # A /propose reply can become a normal Slack thread. Copy its durable context.
     if conversation_id and not thread_ts and isinstance(ts, str):
         saved = vault.conversation(conversation_id)

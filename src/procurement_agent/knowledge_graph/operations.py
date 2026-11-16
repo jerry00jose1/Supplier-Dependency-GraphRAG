@@ -5,15 +5,14 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from procurement_agent.approvals.orders import DraftPurchaseOrder
-from procurement_agent.approvals.service import ApprovalVault, StoredProposal
+from procurement_agent.domain.orders import DraftPurchaseOrder, StoredProposal
 from procurement_agent.knowledge_graph.store import GraphSettings
 
 ACTIVE = "procurement:active"
 
 
-class GraphVault(ApprovalVault):
-    """Reuse conversation interfaces without creating approval proposals."""
+class GraphVault:
+    """Persist conversation context and create purchase orders directly in Neo4j."""
 
     def __init__(self, driver: Any, database: str) -> None:
         self.driver, self.database = driver, database

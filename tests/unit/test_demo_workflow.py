@@ -4,25 +4,16 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
-import respx
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableLambda
-from sqlalchemy import func, select
 from tests.support import component_research_model
 
-from procurement_agent.agent.conversation import BuyerIntent, Conversation, resolve_date
+from procurement_agent.agent.conversation import BuyerIntent, resolve_date
 from procurement_agent.agent.recommendations import SupplierDecision
-from procurement_agent.approvals.models import ProposalRow
-from procurement_agent.approvals.orders import DraftPurchaseOrder
-from procurement_agent.approvals.service import ApprovalVault, init_database
-from procurement_agent.approvals.writer import ErpNextDraftWriter
-from procurement_agent.config import Settings
-from procurement_agent.slack.decisions import apply_decision
+from procurement_agent.domain.orders import InMemoryVault
 from procurement_agent.slack.item_reply import reply_to_text
-from procurement_agent.slack.messages import button_values
 
 TODAY = date(2026, 11, 13)
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,10 +42,8 @@ def intent(action: str, **values: Any) -> dict[str, Any]:
 
 
 class Demo:
-    def __init__(self, path: Path):
-        self.url = f"sqlite:///{path}"
-        self.sessions = init_database(self.url)
-        self.vault = ApprovalVault(self.sessions, {"U1"})
+    def __init__(self) -> None:
+        self.vault = InMemoryVault()
         self.data = json.loads((ROOT / "tests/fixtures/demo_procurement.json").read_text())
 
     def say(
@@ -76,8 +65,7 @@ class Demo:
         )
 
     def count(self) -> int:
-        with self.sessions() as session:
-            return session.scalar(select(func.count()).select_from(ProposalRow)) or 0
+        return len(self.vault.orders)
 
     def prepare(self):
         return self.say(
@@ -89,92 +77,8 @@ class Demo:
 
 
 @pytest.fixture
-def demo(tmp_path):
-    return Demo(tmp_path / "demo.sqlite")
-
-
-def test_three_scenarios_end_to_end_with_actual_writer_http_contract(demo):
-    comparison = demo.say(
-        "Which suppliers can provide ITEM-A? Compare price and delivery history.",
-        intent("compare", item="ITEM-A"),
-        decision=_shortlist(),
-    )
-    assert "Supplier X: latest unit price 10 EUR" in comparison.text
-    assert "Supplier Y: latest unit price 8 EUR" in comparison.text
-    assert "100% on time across 2" in comparison.text
-    assert "0% on time across 2" in comparison.text
-    assert comparison.blocks is None and demo.count() == 0
-
-    prepared = demo.say(
-        "Prepare an order for 20 units from Supplier X, needed next Friday.",
-        intent("purchase", supplier="Supplier X", qty=20, required_by="next Friday"),
-    )
-    original = demo.vault.get(prepared.proposal_id)
-    assert original.payload.items[0].qty == 20
-    assert original.payload.schedule_date == date(2026, 11, 20)
-    demo.vault.remember_slack(original.id, "C1", "123.456")
-
-    # Recreate the service to prove context survives a listener restart.
-    demo.vault = ApprovalVault(init_database(demo.url), {"U1"})
-    revised = demo.say("Make that 30 units.", intent("update", qty=30))
-    stored = demo.vault.get(revised.proposal_id)
-    assert stored.id != original.id
-    assert demo.vault.get(original.id).status == "rejected"
-    assert stored.payload.items[0].qty == 30
-    assert stored.payload.supplier == "Supplier X"
-    assert stored.payload.schedule_date == date(2026, 11, 20)
-    assert revised.slack_ts == "123.456"
-    assert button_values(revised.blocks) == [stored.id, stored.id]
-    assert "300.00 EUR" in revised.text and "2026-11-20" in revised.text
-
-    settings = Settings(
-        _env_file=None,
-        erpnext_base_url="http://erpnext.test",
-        erpnext_api_key="test-key",
-        erpnext_api_secret="test-secret",
-    )
-    writer = ErpNextDraftWriter(settings)
-    try:
-        with respx.mock(base_url="http://erpnext.test") as router:
-            post = router.post("/api/resource/Purchase Order").mock(
-                return_value=httpx.Response(200, json={"data": {"name": "PO-DEMO"}})
-            )
-            router.get("/api/resource/Purchase Order/PO-DEMO").mock(
-                return_value=httpx.Response(
-                    200,
-                    json={
-                        "data": {
-                            "doctype": "Purchase Order",
-                            "name": "PO-DEMO",
-                            "modified": "1",
-                        }
-                    },
-                )
-            )
-            submit = router.post("/api/method/frappe.client.submit").mock(
-                return_value=httpx.Response(200, json={"message": "ok"})
-            )
-            stale = apply_decision(
-                demo.vault, writer, action="approve_proposal", proposal_id=original.id, user_id="U1"
-            )
-            assert "Created draft" not in stale and not post.called
-            result = apply_decision(
-                demo.vault, writer, action="approve_proposal", proposal_id=stored.id, user_id="U1"
-            )
-            assert "Submitted purchase order PO-DEMO" in result
-            assert submit.call_count == 1
-            body = json.loads(post.calls.last.request.content)
-            assert body["items"][0]["qty"] == 30
-            assert body["schedule_date"] == "2026-11-20"
-            assert body["supplier"] == "Supplier X"
-            assert body.get("docstatus", 0) == 0
-            apply_decision(
-                demo.vault, writer, action="approve_proposal", proposal_id=stored.id, user_id="U1"
-            )
-            assert post.call_count == 1
-            assert submit.call_count == 1
-    finally:
-        writer.close()
+def demo():
+    return Demo()
 
 
 def _shortlist(first: str = "Supplier X", second: str = "Supplier Y") -> dict[str, Any]:
@@ -191,6 +95,31 @@ def _shortlist(first: str = "Supplier X", second: str = "Supplier Y") -> dict[st
     }
 
 
+def test_direct_graph_order_creation_without_drafts_or_buttons(demo):
+    comparison = demo.say(
+        "Which suppliers can provide ITEM-A? Compare price and delivery history.",
+        intent("compare", item="ITEM-A"),
+        decision=_shortlist(),
+    )
+    assert "Supplier X: latest unit price 10 EUR" in comparison.text
+    assert "Supplier Y: latest unit price 8 EUR" in comparison.text
+    assert "100% on time across 2" in comparison.text
+    assert "0% on time across 2" in comparison.text
+    assert comparison.blocks is None and demo.count() == 0
+
+    created = demo.say(
+        "Order 20 units from Supplier X, needed next Friday.",
+        intent("purchase", supplier="Supplier X", qty=20, required_by="next Friday"),
+    )
+    assert created.proposal_id is not None
+    assert created.proposal_id.startswith("GRAPH-PO-")
+    assert created.blocks is None
+    assert f"Created order {created.proposal_id} in Neo4j." in created.text
+    stored = demo.vault.orders[created.proposal_id]
+    assert stored.payload.items[0].qty == 20
+    assert stored.payload.schedule_date == date(2026, 11, 20)
+
+
 def test_a_request_for_options_lists_them_and_does_not_order(demo):
     reply = demo.say(
         "I want ITEM-A. Give me the top options.",
@@ -203,7 +132,7 @@ def test_a_request_for_options_lists_them_and_does_not_order(demo):
     assert reply.proposal_id is None and demo.count() == 0
 
 
-def test_buying_the_cheapest_prepares_that_supplier(demo):
+def test_buying_the_cheapest_orders_from_that_supplier(demo):
     reply = demo.say(
         "Buy 20 of ITEM-A from the cheapest supplier, needed next Friday.",
         intent(
@@ -216,14 +145,14 @@ def test_buying_the_cheapest_prepares_that_supplier(demo):
         ),
         decision=_shortlist("Supplier Y", "Supplier X"),
     )
-    stored = demo.vault.get(reply.proposal_id)
-    assert stored is not None
+    assert reply.proposal_id is not None
+    stored = demo.vault.orders[reply.proposal_id]
     assert stored.payload.supplier == "Supplier Y"
     assert stored.payload.items[0].rate == 8
     assert stored.payload.items[0].qty == 20
 
 
-def test_choosing_a_listed_option_prepares_that_supplier(demo):
+def test_choosing_a_listed_option_orders_from_that_supplier(demo):
     demo.say(
         "Show me options for ITEM-A.",
         intent("compare", item="ITEM-A", option_count=2),
@@ -233,8 +162,8 @@ def test_choosing_a_listed_option_prepares_that_supplier(demo):
         "Choose the second one, 20 units, next Friday.",
         intent("purchase", selection_index=2, qty=20, required_by="next Friday"),
     )
-    stored = demo.vault.get(reply.proposal_id)
-    assert stored is not None
+    assert reply.proposal_id is not None
+    stored = demo.vault.orders[reply.proposal_id]
     assert stored.payload.supplier == "Supplier Y"
     assert stored.payload.items[0].qty == 20
 
@@ -249,19 +178,6 @@ def test_packaging_asks_item_and_quantity_even_after_a_comparison(demo):
         intent("update", item="ITEM-A", qty=20, supplier="Supplier X", required_by="next Friday"),
     )
     assert filled.proposal_id and demo.count() == 1
-
-
-def test_questions_never_change_a_pending_proposal(demo):
-    prepared = demo.prepare()
-    before = demo.vault.get(prepared.proposal_id)
-    reply = demo.say(
-        "What would 100 cost? Don't order",
-        intent("compare", item="ITEM-A", qty=100),
-        decision=_shortlist(),
-    )
-    after = demo.vault.get(prepared.proposal_id)
-    assert reply.proposal_id is None and demo.count() == 1
-    assert before.payload_hash == after.payload_hash and after.status == "proposed"
 
 
 @pytest.mark.parametrize(
@@ -288,13 +204,6 @@ def test_incomplete_or_invalid_purchase_never_stages(demo, values, expected):
     assert reply.proposal_id is None and demo.count() == 0
 
 
-def test_invalid_revision_disables_previous_button(demo):
-    first = demo.prepare()
-    reply = demo.say("Make that zero", intent("update", qty=0))
-    assert reply.proposal_id is None
-    assert demo.vault.get(first.proposal_id).status == "rejected"
-
-
 def test_followup_is_scoped_to_conversation(demo):
     demo.prepare()
     reply = demo.say("Make that 30", intent("update", qty=30), conversation_id="another-thread")
@@ -302,20 +211,10 @@ def test_followup_is_scoped_to_conversation(demo):
 
 
 def test_new_order_for_same_item_after_execution(demo):
-    class Writer:
-        def create_draft(self, order: DraftPurchaseOrder) -> str:
-            return "PO-DEMO"
-
-        def submit(self, name: str) -> None:
-            return None
-
     first = demo.prepare()
-    apply_decision(
-        demo.vault, Writer(), action="approve_proposal", proposal_id=first.proposal_id, user_id="U1"
-    )
     second = demo.prepare()
     assert first.proposal_id != second.proposal_id
-    assert demo.vault.get(second.proposal_id).status == "proposed"
+    assert demo.count() == 2
 
 
 @pytest.mark.parametrize(
@@ -332,33 +231,7 @@ def test_dates_have_a_defined_calendar_interpretation(phrase, expected):
     assert resolve_date(phrase, TODAY).isoformat() == expected
 
 
-def test_slack_delivery_updates_revised_card_and_threads_new_replies(demo):
-    slack = runpy.run_path(str(ROOT / "scripts/slack_listen.py"))
-
-    class Client:
-        calls: list[dict[str, Any]] = []
-
-        def chat_postMessage(self, **kwargs):
-            self.calls.append(kwargs)
-            return {"ts": "111.222"}
-
-        def chat_update(self, **kwargs):
-            self.calls.append(kwargs)
-
-    client = Client()
-    prepared = demo.prepare()
-    slack["_deliver"](client, demo.vault, "C1", prepared, thread_ts="100.100")
-    assert client.calls[-1]["thread_ts"] == "100.100"
-    revised = demo.say("Make that 30", intent("update", qty=30))
-    slack["_deliver"](client, demo.vault, "C1", revised, thread_ts="100.100")
-    assert client.calls[-1]["ts"] == "111.222"
-    assert "qty 30" in client.calls[-1]["text"]
-    state = Conversation.model_validate_json(demo.vault.conversation("demo"))
-    assert state.proposal_id == revised.proposal_id
-
-
 def test_active_listener_has_no_approval_execution_handler():
     slack = runpy.run_path(str(ROOT / "scripts/slack_listen.py"))
     assert "_act" not in slack
     assert "ErpNextDraftWriter" not in slack
-

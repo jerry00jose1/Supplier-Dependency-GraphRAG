@@ -36,7 +36,7 @@ typecheck:
 	$(UV) run --locked mypy src
 
 lint:
-	$(UV) run --locked ruff check src tests scripts/slack_listen.py scripts/eval_demo.py
+	$(UV) run --locked ruff check src tests scripts/slack_listen.py
 
 .PHONY: graph-up graph-down graph-load graph-query graph-verify
 graph-up:

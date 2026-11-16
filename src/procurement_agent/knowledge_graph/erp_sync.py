@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import quote
 
-from procurement_agent.config import Settings, get_settings
-from procurement_agent.erp.client import ErpNextReadClient
+from procurement_agent.config import Settings
 from procurement_agent.knowledge_graph.models import Edge, Label, Node, Snapshot
-from procurement_agent.knowledge_graph.store import GraphSettings, load_snapshot
 from procurement_agent.policy.corpus import load_policy
 
 
-def build_erp_snapshot(settings: Settings, erp: ErpNextReadClient) -> Snapshot:
+class ErpReader(Protocol):
+    def list_all(self, doctype: str, fields: list[str], **kwargs: Any) -> list[dict[str, Any]]: ...
+
+
+def build_erp_snapshot(settings: Settings, erp: ErpReader) -> Snapshot:
     """Read all purchase-order statuses and all their lines; fail on incomplete mappings."""
     orders = erp.list_all("Purchase Order", [
         "name", "supplier", "transaction_date", "currency", "status", "docstatus", "company",
@@ -105,25 +107,6 @@ def build_erp_snapshot(settings: Settings, erp: ErpNextReadClient) -> Snapshot:
 
 def main() -> None:
     raise RuntimeError("ERP synchronization is retired. Neo4j is authoritative.")
-
-
-def legacy_import() -> None:
-    settings = get_settings()
-    started = datetime.now(UTC).isoformat()
-    with ErpNextReadClient(settings) as erp:
-        snapshot = build_erp_snapshot(settings, erp)
-    graph = GraphSettings()
-    with graph.driver() as driver:
-        result = load_snapshot(driver, graph.database, snapshot)
-        # Publish only after the complete validated import succeeds.
-        with driver.session(database=graph.database) as session:
-            session.run(
-                "MERGE (p:GraphProjection {id:$id}) SET p.snapshot=$snapshot, "
-                "p.sync_started_at=$started, p.synced_at=$finished",
-                id=f"erpnext:{settings.erpnext_site}", snapshot=snapshot.fingerprint,
-                started=started, finished=datetime.now(UTC).isoformat(),
-            ).consume()
-    print(json.dumps({**result, "projection": f"erpnext:{settings.erpnext_site}"}))
 
 
 if __name__ == "__main__":

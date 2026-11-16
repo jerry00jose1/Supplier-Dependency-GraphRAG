@@ -23,7 +23,7 @@ from procurement_agent.agent.recommendations import (
     recommend,
     render_recommendations,
 )
-from procurement_agent.approvals.service import ApprovalVault
+from procurement_agent.domain.orders import OrderVault
 from procurement_agent.policy.retrieve import Embedder
 
 
@@ -146,7 +146,7 @@ def resolve_date(value: str, today: date) -> date:
 
 def run_conversation(
     model: BaseChatModel,
-    vault: ApprovalVault,
+    vault: OrderVault,
     text: str,
     orders: list[dict[str, Any]],
     order_items: list[dict[str, Any]],
@@ -224,7 +224,6 @@ def run_conversation(
         })
 
     current = vault.get(state.proposal_id) if state.proposal_id else None
-    previous_card = current if intent.action == "update" else None
     if intent.action == "update" and (
         not state.purchasing or (current and current.status != "proposed")
     ):
@@ -235,8 +234,6 @@ def run_conversation(
 
     # An explicit purchase starts a fresh request, except when filling an incomplete request.
     if intent.action == "purchase" and (not state.purchasing or current is not None):
-        if current and current.status == "proposed":
-            vault.supersede(current.id, "a new purchase request replaced this proposal")
         state = Conversation(context_item=state.context_item, purchasing=True)
         current = None
 
@@ -268,12 +265,10 @@ def run_conversation(
         state.required_by = None
         date_error = "The required date must be today or later."
 
-    # Invalidate the old button before requesting corrections or presenting a new revision.
     if current and any(
         value is not None
         for value in (intent.item, intent.supplier, intent.qty, intent.required_by)
     ):
-        vault.supersede(current.id, "purchase details changed; approve the new revision")
         state.proposal_id = None
         current = None
 
@@ -332,10 +327,6 @@ def run_conversation(
     if current is None:
         state.revision += 1
         current = vault.stage(f"request:{state.request_id}:{state.revision}", order)
-        if previous_card and previous_card.slack_channel and previous_card.slack_ts:
-            current = vault.remember_slack(
-                current.id, previous_card.slack_channel, previous_card.slack_ts
-            )
         state.proposal_id = current.id
         vault.save_conversation(conversation_id, state.model_dump_json())
     detail = (

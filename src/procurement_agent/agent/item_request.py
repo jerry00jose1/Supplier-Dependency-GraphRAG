@@ -9,9 +9,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from procurement_agent.approvals.orders import DraftPurchaseOrder, PurchaseOrderLine
-from procurement_agent.approvals.service import StoredProposal
 from procurement_agent.domain.exceptions import _as_date, supplier_performance
+from procurement_agent.domain.orders import (
+    DraftPurchaseOrder,
+    PurchaseOrderLine,
+    StoredProposal,
+)
 
 _LEAD_TIME_DAYS = 14
 

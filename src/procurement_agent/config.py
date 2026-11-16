@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,16 +27,6 @@ class Settings(BaseSettings):
 
     erpnext_base_url: str = "http://localhost:8080"
     erpnext_site: str = "frontend"
-    erpnext_admin_user: str = "Administrator"
-    erpnext_admin_password: SecretStr = SecretStr("admin")
-    erpnext_api_key: SecretStr | None = None
-    erpnext_api_secret: SecretStr | None = None
-    erpnext_timeout_seconds: float = 30.0
-
-    # Dedicated state for this project's Slack proposals and conversations.
-    graph_app_database_url: str = (
-        "sqlite:///" + str(Path(__file__).resolve().parents[2] / "graph_app.sqlite3")
-    )
 
     llm_provider: Literal["openai", "deepseek", "anthropic", "gemini"] = "openai"
     llm_model: str = "gpt-4.1-mini"
@@ -48,14 +37,7 @@ class Settings(BaseSettings):
     slack_bot_token: SecretStr | None = None
     slack_app_token: SecretStr | None = None
     slack_signing_secret: SecretStr | None = None
-    slack_approver_user_ids: str = Field(default="")
     slack_channel_id: str = ""
-
-    order_submit_limit: float = 5000
-
-    @property
-    def approver_user_ids(self) -> set[str]:
-        return {uid.strip() for uid in self.slack_approver_user_ids.split(",") if uid.strip()}
 
 
 @lru_cache
