@@ -1,125 +1,45 @@
 # Supplier Dependency GraphRAG
 
-## Current runtime: graph-only procurement
+A Slack-based procurement and supply-chain GraphRAG agent backed by **Neo4j as the single source of truth**.
 
-Neo4j is now the authoritative procurement database. `make graph-slack` starts the
-direct-order assistant: complete purchase requests create orders in Neo4j with no
-drafts or approval buttons. ERPNext is not contacted by this runtime; `make graph-sync`
-is disabled. Existing records were copied into the `procurement:active` operational
-graph, preserving the original snapshots and their provenance. Historical ERP status
-fields remain on imported records; newly created graph orders have status `Open`.
+## Architecture & Capabilities
 
-Conversation state is also stored in Neo4j. Existing local conversation/proposal
-databases are retained as history but are not active. Slack delivery receipts remain
-local transport metadata. Duplicate Slack events cannot create a second graph order.
-Missing purchase details trigger clarification. Orders use recorded historical prices
-under the existing purchasing logic; storing an order does not send it to a supplier.
-Edits to an already created order are not implemented; partial requests can be revised
-before creation. The facility/disruption scenario remains explicitly synthetic.
+`make graph-slack` starts the unified Slack listener (`scripts/slack_listen.py`), which routes messages across three workflows over the active operational graph (`procurement:active` in Neo4j):
 
-Earlier ERP integration and approval descriptions below document previous milestones
-and are superseded by this runtime description.
+1. **Operational Procurement & Direct Order Creation (`procurement` workflow):**
+   - **Supplier Comparison & Recommendations:** Queries Neo4j via targeted, indexed Cypher (`GraphEvidence.seller_facts`) to rank eligible suppliers by historical unit price and receipt on-time delivery rate, honoring buyer exclusions and saving selectable shortlists (`"choose option 2"`).
+   - **Three-Way Invoice Matching:** Queries `Invoice`, `InvoiceLine`, and linked `OrderLine` nodes in Neo4j (`GraphEvidence.invoice_mismatches`) to detect billed price and received quantity discrepancies.
+   - **Written Policy Retrieval:** Uses local `FastEmbedder` (`BAAI/bge-small-en-v1.5`) over `(:Document {id: "policy:northwind"})-[:CONTAINS]->(:Passage)` nodes in Neo4j (`GraphPolicy`) with verified section citations.
+   - **Direct Neo4j Order Creation:** Complete purchase requests create `(:PurchaseOrder {name: "GRAPH-PO-...", status: "Open"})` and `(:OrderLine)` nodes atomically in Neo4j via `GraphVault` (`src/procurement_agent/knowledge_graph/operations.py`) with no drafts, no approval buttons, and no ERPNext dependency.
 
-A new project for investigating supplier disruptions using a procurement knowledge
-graph and evidence-backed LLM answers.
+2. **Direct Order History Inspection (`orders` workflow):**
+   - Queries `PurchaseOrder` and `OrderLine` nodes in `procurement:active` by supplier, order ID, or valid `OrderStatus` (`Open`, `Draft`, `Completed`, `To Bill`, `To Receive`, `To Receive and Bill`, `Cancelled`) with 20-row pagination.
 
-## Customer outcome
+3. **Supply-Chain Disruption & Dependency GraphRAG (`graph` workflow):**
+   - Traverses multi-hop upstream facility claims (`Document -> Passage -> Claim -> Facility / Supplier`) attached to `procurement:active` via three parameterized Cypher investigations (`exposure.cypher`, `alternatives.cypher`, `dependencies.cypher`).
+   - Automatically evaluates both historical orders and newly Slack-created `GRAPH-PO-...` open orders against active facility shutdown notices, requiring 100% citation coverage (`[E1..En]`) in the synthesized answer.
 
-When a supplier disruption notice arrives, help a procurement analyst identify
-potentially affected purchases, investigate alternative suppliers, and inspect
-the records and document passages behind each finding.
+## Local Setup & Commands
 
-After the buyer confirms replacement purchase details, prepare an ERPNext draft,
-route it through ERPNext approval, and report the status in Slack. See the
-[architecture, graph mappings, and demo scenario](docs/architecture.md).
-
-> A supplier facility has shut down. Which purchases might be exposed, and do
-> our alternative suppliers share that dependency?
-
-## Current status
-
-The unified Slack entry point (`make graph-slack`) now routes actual ERP order
-history through the latest imported Neo4j projection and restores inherited
-supplier comparisons, policy/invoice research, purchase preparation and Slack
-approval buttons. Run `make graph-sync` to refresh order data; synchronization is
-currently manual. Facility/disruption questions still use the explicitly synthetic
-demo evidence. See [ERP integration and Slack examples](docs/erp-graph-sync.md).
-
-**The first knowledge-graph milestone is implemented:** local Neo4j, validated
-Mizan/synthetic demo ingestion, repeatable snapshots, and three investigation
-queries. Entity-aware LLM answers and a Slack thread listener are also implemented;
-see [conversation setup and evaluation](docs/graph-conversation.md). Ten live-model
-scenarios passed. Live ERP synchronization, document extraction, and ERPNext-owned
-approval integration remain pending. See [graph inspection instructions](docs/graph-demo.md).
-
-This repository starts from [Agentic Procurement Automation](https://github.com/jerry00jose1/Agentic-Procurement-Automation),
-commit `3489faed9e926d2850ddc952f1adc972bd861138`, with independent Git history.
-It retains the Python dependencies and lockfile, procurement package, tests,
-synthetic Mizan data, and reference infrastructure. See
-[inherited application documentation](docs/inherited-procurement.md).
-
-## Local setup
-
-Prerequisites: Python 3.11+ and uv. Offline tests do not require Slack, ERPNext,
-an LLM API, or Neo4j.
+Prerequisites: Python 3.11+, `uv`, and Docker (for local Neo4j).
 
 ```sh
-make install
-make test
-make typecheck
-make lint
+make install       # Install locked dependencies into .venv
+make test          # Run offline unit and write-boundary tests
+make typecheck     # Run strict mypy type checking
+make lint          # Run ruff lint checks
+make graph-up      # Start local Neo4j container
+make graph-verify  # Load and verify the dependency GraphRAG snapshot
+make graph-slack   # Start the unified Slack Socket Mode listener
 ```
 
-`make install` creates this project's own `.venv` using the inherited locked
-dependency versions. The environment is separate from the original project.
+To run the full test suite including live Neo4j integration tests:
 
-The local `.env`, when copied from the original project, remains ignored by Git.
-It can reuse the existing LLM credentials and ERPNext URL. Otherwise copy
-`.env.example` to `.env` and configure only the values required for your stage.
-Do not start a second Slack listener or reseed ERPNext as part of this setup.
+```sh
+RUN_NEO4J_TESTS=1 uv run pytest -q
+```
 
-Existing ERPNext containers and embedding model caches can be reused. The inherited
-application currently uses an approval store for proposals and conversation state.
-Its responsibilities will be adapted as formal approval moves to ERPNext; a
-separate approval database is not required just to load and query the graph.
-The Neo4j driver is included in the lockfile. Run `make graph-up` to start the
-separate local graph database and `make graph-verify` to load and check the demo.
+## Data & Provenance
 
-`Makefile.procurement` and the existing Docker files are inherited reference
-infrastructure. Their service targets operate on the original procurement stack.
-
-## Implementation sequence
-
-1. Define supplier, facility, item, order-line, department, document, and claim
-   identifiers and relationship meanings.
-2. Load a small Mizan subset and explicitly synthetic dependency fixtures into
-   Neo4j with repeatable Python ingestion and uniqueness constraints.
-3. Write three Cypher investigations and verify the returned paths manually.
-4. Extract relationships from short supplier profiles and disruption notices,
-   resolve aliases, and preserve supporting passages and claim status.
-5. Retrieve a relevant supplier or passage, traverse bounded graph paths, and
-   generate an answer citing structured records and document evidence.
-6. Verify ERP field mappings, import a read-only snapshot, and connect confirmed
-   purchase requests to draft creation, ERPNext approval, and Slack status updates.
-7. Evaluate ten scenarios against a vector-only baseline using the same source
-   information, then record a five-minute customer demo.
-
-See [scope and acceptance criteria](docs/project-scope.md).
-
-## Data and limitations
-
-Mizan provides synthetic historical procurement records. It does not provide
-current capacity, approved substitutions, supplier facility dependencies, bills
-of materials, or production plans. Added dependency profiles and notices must
-be explicitly marked synthetic and distinguishable from the Mizan records.
-All source purchase orders are marked closed; the demo's open orders must also be
-explicitly synthetic. Raw CSV data and transformed ERP seed records are separate
-sources whose differences are documented in the provenance file.
-
-Historical purchases identify candidates for investigation, not confirmed
-availability or approved alternatives. Shared ownership alone does not prove
-shared operational risk. Potential exposure is not confirmed production impact.
-
-The Mizan dataset is attributed to findi360 under CC BY 4.0. Preserve its
-[dataset documentation](data/mizan/README.md) and
-[transformation provenance](data/mizan/PROVENANCE.txt).
+- **Operational Procurement Records:** Migrated into `snapshot = "procurement:active"` from the Mizan dataset (attributed to findi360 under CC BY 4.0; see [`data/mizan/README.md`](data/mizan/README.md) and [`data/mizan/PROVENANCE.txt`](data/mizan/PROVENANCE.txt)).
+- **Synthetic Dependency Fixtures:** Facility nodes (`FAC-X`, `FAC-Y`), supplier facility claims (`profile-a.md`, `profile-b.md`, `profile-c.md`), and the shutdown notice (`shutdown.md`) in [`data/graph_demo/`](data/graph_demo/README.md) carry `origin: "synthetic"` so structured transactional records and authored dependency claims remain auditable and distinct.
