@@ -9,6 +9,7 @@ from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from procurement_agent.agent.conversation import BuyerIntent
 from procurement_agent.agent.graph import run_conversation
 from procurement_agent.domain.orders import OrderVault
 from procurement_agent.knowledge_graph.procurement import ProcurementEvidence
@@ -40,6 +41,7 @@ def reply_to_text(
     embedder: Embedder | None = None,
     source: ProcurementEvidence | None = None,
     event_id: str | None = None,
+    intent: BuyerIntent | None = None,
 ) -> ItemReply:
     if not text.strip():
         return _say("Name an item, for example: I need S-66100")
@@ -59,6 +61,7 @@ def reply_to_text(
             embedder=embedder,
             source=source,
             event_id=event_id,
+            intent=intent,
         )
     except Exception:
         logging.getLogger(__name__).exception("Buyer request failed")

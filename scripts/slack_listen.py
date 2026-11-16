@@ -158,6 +158,7 @@ def _unified_answer(
                 conversation_id=conversation_id,
                 driver=driver,
                 event_id=event_id,
+                intent=route.intent,
             )
         else:
             if route.workflow == "orders":
@@ -197,6 +198,7 @@ def _answer(
     conversation_id: str = "default",
     driver: Any | None = None,
     event_id: str | None = None,
+    intent: Any | None = None,
 ) -> ItemReply:
     if not text.strip():
         return ItemReply("Name an item, for example: I need S-66100", None, None, None, None)
@@ -215,6 +217,7 @@ def _answer(
         embedder=source.embedder,
         source=source,
         event_id=event_id,
+        intent=intent,
     )
 
     return ItemReply(f"Graph evidence refreshed {source.refreshed}.\n\n" + reply.text,

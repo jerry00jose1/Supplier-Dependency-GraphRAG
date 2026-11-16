@@ -99,6 +99,7 @@ def build_buyer_graph(
     embedder: Embedder | None = None,
     source: ProcurementEvidence | None = None,
     event_id: str | None = None,
+    precomputed_intent: BuyerIntent | None = None,
 ) -> Any:
     """Build one invocation's graph. Durable buyer state remains in OrderVault."""
     data_source = source or InMemoryEvidence(
@@ -243,7 +244,7 @@ def build_buyer_graph(
         loaded_invoices = False
         saved = vault.conversation(conversation_id)
         context = Conversation.model_validate_json(saved) if saved else Conversation()
-        intent = read_intent(model, state["text"], context, today)
+        intent = precomputed_intent or read_intent(model, state["text"], context, today)
         latest_intent.append(intent)
         original_text.append(state["text"])
         return {
@@ -418,6 +419,7 @@ def run_conversation(
     embedder: Embedder | None = None,
     source: ProcurementEvidence | None = None,
     event_id: str | None = None,
+    intent: BuyerIntent | None = None,
 ) -> tuple[str, FiledPurchase | None]:
     graph = build_buyer_graph(
         model,
@@ -433,6 +435,7 @@ def run_conversation(
         embedder=embedder,
         source=source,
         event_id=event_id,
+        precomputed_intent=intent,
     )
     result = graph.invoke({"text": text}, config={"recursion_limit": 2 * MAX_ROUNDS + 5})
     return result["result"]  # type: ignore[no-any-return]
