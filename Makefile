@@ -56,7 +56,7 @@ graph-verify:
 
 .PHONY: graph-slack
 graph-slack:
-	$(UV) run --locked python -m procurement_agent.knowledge_graph.slack
+	$(UV) run --locked python scripts/slack_listen.py
 
 .PHONY: graph-ask graph-eval graph-slack-check
 graph-ask:

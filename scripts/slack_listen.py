@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import threading
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote
@@ -20,10 +22,16 @@ from procurement_agent.approvals.service import ApprovalVault, init_database
 from procurement_agent.approvals.writer import ErpNextDraftWriter
 from procurement_agent.config import Settings, get_settings
 from procurement_agent.erp.client import ErpNextReadClient
+from procurement_agent.knowledge_graph.conversation import Context, GraphConversation, Reply
+from procurement_agent.knowledge_graph.demo import ROOT, build_demo
+from procurement_agent.knowledge_graph.retrieval import GraphReader, demo_aliases
+from procurement_agent.knowledge_graph.slack_app import ThreadStore, slack_text
+from procurement_agent.knowledge_graph.store import GraphSettings
 from procurement_agent.policy.retrieve import shared_embedder
 from procurement_agent.slack.decisions import apply_decision
 from procurement_agent.slack.item_reply import ItemReply, reply_to_text
 from procurement_agent.slack.messages import order_card
+from procurement_agent.slack.router import order_answer, route_question
 
 
 def main() -> None:
@@ -34,6 +42,10 @@ def main() -> None:
     vault = ApprovalVault(init_database(settings.database_url), settings.approver_user_ids)
     writer = ErpNextDraftWriter(settings)
     model = openai_chat_model(settings)
+    graph_settings = GraphSettings()
+    driver = graph_settings.driver()
+    receipts = ThreadStore(ROOT / ".cache/unified_deliveries.sqlite3")
+    lock = threading.Lock()
     app = App(token=bot_token, signing_secret=signing_secret)
 
     @app.command("/propose")
@@ -46,15 +58,22 @@ def main() -> None:
             client,
             vault,
             channel,
-            _answer(settings, vault, model, text, conversation_id=conversation_id),
+            _unified_answer(settings, vault, model, driver, text, conversation_id),
             conversation_id=conversation_id,
         )
 
     @app.event("message")
     def on_message(event: dict[str, Any], client: Any) -> None:
+        with lock:
+            handle_message(event, client)
+
+    def handle_message(event: dict[str, Any], client: Any) -> None:
         if event.get("channel") != settings.slack_channel_id:
             return
-        if event.get("bot_id") or event.get("subtype"):
+        if event.get("bot_id") or event.get("subtype") or not event.get("user"):
+            return
+        event_id = f"{event['channel']}:{event['ts']}"
+        if receipts.seen(event_id):
             return
         channel = settings.slack_channel_id
         root_ts = str(event.get("thread_ts") or event["ts"])
@@ -64,20 +83,22 @@ def main() -> None:
             command_context = vault.conversation(conversation_key(channel, "", root_ts))
             if command_context:
                 vault.save_conversation(conversation_id, command_context)
+        reply = _unified_answer(
+            settings, vault, model, driver, str(event.get("text") or ""), conversation_id,
+        )
+        if not receipts.reserve(event_id, conversation_id, Reply(
+            text=reply.text, context=Context(), status="handled",
+        )):
+            return
         _deliver(
             client,
             vault,
             settings.slack_channel_id,
-            _answer(
-                settings,
-                vault,
-                model,
-                str(event.get("text") or ""),
-                conversation_id=conversation_id,
-            ),
+            reply,
             thread_ts=root_ts,
             conversation_id=conversation_id,
         )
+        receipts.sent(event_id)
 
     @app.action("approve_proposal")
     def approve(ack: Any, body: dict[str, Any], client: Any) -> None:
@@ -110,8 +131,50 @@ def main() -> None:
         ack()
         _act(vault, writer, body, client, "reject_proposal", None, settings.order_submit_limit)
 
-    print("Listening in Slack. Compare suppliers for an item, then continue in that thread.")
-    SocketModeHandler(app, app_token).start()
+    print("Unified Slack ready: ERP orders, procurement and graph investigations.", flush=True)
+    try:
+        socket: Any = SocketModeHandler(app, app_token)
+        socket.start()
+    finally:
+        driver.close()
+
+
+def _unified_answer(
+    settings: Settings, vault: ApprovalVault, model: BaseChatModel,
+    driver: Any, text: str, conversation_id: str,
+) -> ItemReply:
+    try:
+        route, state = route_question(model, vault, conversation_id, text)
+        if route.workflow == "procurement":
+            reply = _answer(settings, vault, model, text, conversation_id=conversation_id)
+        else:
+            if route.workflow == "orders":
+                answer = order_answer(driver, GraphSettings().database,
+                                      f"erpnext:{settings.erpnext_site}", state)
+            else:
+                # Synthetic facility evidence remains scoped to the demo, never ERP identities.
+                reader = GraphReader(driver, GraphSettings().database, build_demo().fingerprint,
+                                     demo_aliases(ROOT))
+                previous = Context.model_validate_json(
+                    vault.conversation("graph:" + conversation_id) or "{}"
+                )
+                result = GraphConversation(reader, model).answer(text, previous)
+                vault.save_conversation("graph:" + conversation_id,
+                                        result.context.model_dump_json())
+                answer = "Synthetic dependency demo investigation:\n" + result.text
+            escaped = slack_text(answer)
+            chunks = [escaped[i:i + 2900] for i in range(0, len(escaped), 2900)]
+            reply = ItemReply(escaped[:3900], [
+                {"type": "section", "text": {"type": "plain_text", "text": chunk}}
+                for chunk in chunks[:45]
+            ], None, None, None)
+        vault.save_conversation("router:" + conversation_id, json.dumps(state))
+        return reply
+    except Exception:
+        logging.getLogger(__name__).exception("Unified Slack request failed")
+        return ItemReply("I could not complete that request. Please retry with a supplier name, "
+                         "purchase order ID, or item code. No ERP action was taken by the router.",
+                         None, None, None, None)
 
 
 def _answer(
