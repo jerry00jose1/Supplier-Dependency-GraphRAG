@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Protocol
 
-from procurement_agent.agent.item_request import SellerFact, seller_facts
 from procurement_agent.domain.exceptions import InvoiceMismatch, invoice_mismatches
+from procurement_agent.domain.orders import SellerFact, seller_facts
 from procurement_agent.knowledge_graph.store import GraphSettings
 from procurement_agent.policy.corpus import PolicyChunk
 from procurement_agent.policy.retrieve import Embedder, retrieve, shared_embedder

@@ -1,9 +1,8 @@
 """Compatibility entry point for the unified Slack listener."""
 
-import runpy
 import sys
 
-from procurement_agent.knowledge_graph.demo import ROOT
+from procurement_agent.slack.listener import main as listen
 
 
 def main() -> None:
@@ -12,7 +11,8 @@ def main() -> None:
 
         check()
     else:
-        runpy.run_path(str(ROOT / "scripts/slack_listen.py"), run_name="__main__")
+        listen()
+
 
 if __name__ == "__main__":
     main()
